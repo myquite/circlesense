@@ -5,7 +5,7 @@ import type { ChordQuality } from '../engine/chordData.types';
 
 let instance: PlaybackEngine | null = null;
 
-function getPlaybackEngine(): PlaybackEngine {
+export function getPlaybackEngine(): PlaybackEngine {
   if (!instance) {
     instance = new PlaybackEngine(getConductor());
   }
