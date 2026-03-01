@@ -1,5 +1,6 @@
 import { useJudge } from '../../engine/useJudge';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
+import { useMidiInput } from '../../input/useMidiInput';
 import { buildVoicing } from '../../engine/chordData';
 import { G_MAJOR_SCALE } from '../../engine/scaleData';
 import type { PitchClass } from '../../engine/chordData.types';
@@ -18,6 +19,7 @@ const SCALE_NOTES: { pitchClass: PitchClass; note: string }[] = [
 export default function ScaleGuardrail() {
   const { lastDetectedName, lastDetectedNote, isInScale, isActive } = useJudge();
   const { currentChord } = usePlaybackEngine();
+  const { isConnected, activeDevice, requestAccess } = useMidiInput();
 
   // Get current chord tones for highlighting
   const chordTones = new Set<PitchClass>();
@@ -81,14 +83,20 @@ export default function ScaleGuardrail() {
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <button
+        type="button"
+        onClick={() => requestAccess()}
+        className="flex gap-4 cursor-pointer hover:opacity-80 transition-opacity"
+        title={isConnected ? 'Click to reconnect MIDI' : 'Click to connect MIDI device'}
+      >
         <div className="flex flex-col items-end">
           <span className="text-[10px] text-slate-500 font-bold uppercase">Input Source</span>
           <span className="text-sm font-bold text-white flex items-center gap-2">
-            Scarlett 2i2 <span className="size-2 rounded-full bg-primary" />
+            {activeDevice?.name ?? 'No Device'}
+            <span className={`size-2 rounded-full ${isConnected ? 'bg-primary' : 'bg-slate-600'}`} />
           </span>
         </div>
-      </div>
+      </button>
     </footer>
   );
 }
