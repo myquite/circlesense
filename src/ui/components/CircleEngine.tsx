@@ -1,4 +1,9 @@
+import { useConductor } from '../../audio/useConductor';
+
 export default function CircleEngine() {
+  const { position, config, transport } = useConductor();
+  const isPlaying = transport === 'playing';
+
   return (
     <div className="flex-1 relative flex items-center justify-center bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent">
       {/* Direction Indicators */}
@@ -30,8 +35,21 @@ export default function CircleEngine() {
           <div className="text-slate-400 text-xs tracking-[0.2em] font-bold uppercase">Now Playing</div>
           <div className="text-7xl font-black text-white tracking-tighter">E7</div>
           <div className="flex items-center justify-center gap-3">
-            <div className="px-3 py-1 bg-surface border border-border-muted rounded text-sm font-mono">BAR 1/2</div>
-            <div className="size-3 rounded-full bg-primary shadow-[0_0_10px_#38ff14] animate-pulse" />
+            <div className="px-3 py-1 bg-surface border border-border-muted rounded text-sm font-mono">
+              BAR {position.bar + 1}/{config.barLength}
+            </div>
+            <div className="flex gap-1">
+              {Array.from({ length: config.beatsPerBar }, (_, i) => (
+                <div
+                  key={i}
+                  className={`size-3 rounded-full transition-all duration-100 ${
+                    i === position.beat && isPlaying
+                      ? 'bg-primary shadow-[0_0_10px_#38ff14] scale-125'
+                      : 'bg-surface border border-border-muted'
+                  }`}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
