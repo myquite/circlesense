@@ -3,7 +3,7 @@ import { Conductor } from './conductor';
 
 let instance: Conductor | null = null;
 
-function getConductor(): Conductor {
+export function getConductor(): Conductor {
   if (!instance) {
     instance = new Conductor();
   }

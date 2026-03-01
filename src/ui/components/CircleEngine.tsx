@@ -1,7 +1,9 @@
 import { useConductor } from '../../audio/useConductor';
+import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 
 export default function CircleEngine() {
   const { position, config, transport } = useConductor();
+  const { currentChord, nextChord } = usePlaybackEngine();
   const isPlaying = transport === 'playing';
 
   return (
@@ -27,13 +29,17 @@ export default function CircleEngine() {
         <div className="absolute bottom-0 translate-y-1/2 px-4 py-2 bg-surface border border-border-muted rounded-lg font-bold text-slate-400">F</div>
 
         {/* Active Chord */}
-        <div className="absolute right-[15%] top-[15%] px-6 py-3 bg-primary shadow-[0_0_30px_#38ff14] text-background-dark rounded-xl font-black text-2xl z-10 border-4 border-background-dark">E7</div>
-        <div className="absolute right-[5%] bottom-[30%] px-4 py-2 bg-primary/20 border border-primary/50 text-primary rounded-lg font-bold opacity-60">A7</div>
+        <div className="absolute right-[15%] top-[15%] px-6 py-3 bg-primary shadow-[0_0_30px_#38ff14] text-background-dark rounded-xl font-black text-2xl z-10 border-4 border-background-dark">
+          {currentChord?.label ?? '--'}
+        </div>
+        <div className="absolute right-[5%] bottom-[30%] px-4 py-2 bg-primary/20 border border-primary/50 text-primary rounded-lg font-bold opacity-60">
+          {nextChord?.label ?? '--'}
+        </div>
 
         {/* Central HUD */}
         <div className="text-center space-y-4">
           <div className="text-slate-400 text-xs tracking-[0.2em] font-bold uppercase">Now Playing</div>
-          <div className="text-7xl font-black text-white tracking-tighter">E7</div>
+          <div className="text-7xl font-black text-white tracking-tighter">{currentChord?.label ?? '--'}</div>
           <div className="flex items-center justify-center gap-3">
             <div className="px-3 py-1 bg-surface border border-border-muted rounded text-sm font-mono">
               BAR {position.bar + 1}/{config.barLength}

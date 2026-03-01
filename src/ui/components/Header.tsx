@@ -1,7 +1,17 @@
 import { useConductor } from '../../audio/useConductor';
+import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
+import type { ChordQuality } from '../../engine/chordData.types';
+
+const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
+  { value: 'maj7', label: 'Major 7' },
+  { value: 'dom7', label: 'Dominant 7' },
+  { value: 'min7', label: 'Minor 7' },
+  { value: 'dim', label: 'Diminished' },
+];
 
 export default function Header() {
   const { transport, config, play, pause, stop, setBpm, setBarLength } = useConductor();
+  const { chordQuality, setChordQuality } = usePlaybackEngine();
 
   const isPlaying = transport === 'playing';
   const isPaused = transport === 'paused';
@@ -63,12 +73,12 @@ export default function Header() {
           <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Chord Type</span>
           <select
             className="bg-surface border border-border-muted text-xs rounded-lg px-2 py-1 focus:ring-primary focus:border-primary"
-            defaultValue="Dominant 7"
+            value={chordQuality}
+            onChange={(e) => setChordQuality(e.target.value as ChordQuality)}
           >
-            <option>Major 7</option>
-            <option>Dominant 7</option>
-            <option>Minor 7</option>
-            <option>Diminished</option>
+            {QUALITY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
           </select>
         </div>
       </div>
