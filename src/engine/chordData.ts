@@ -56,31 +56,46 @@ export function buildVoicing(
   return { frequencies, pitchClasses };
 }
 
-/**
- * Hardcoded G Major progression: G, C, D, Em.
- * Em stays minor regardless of quality selection (diatonically correct).
- */
-export function getGMajorProgression(quality: ChordQuality): ProgressionDefinition {
-  const roots: { note: NoteName; forceMinor: boolean }[] = [
-    { note: 'G', forceMinor: false },
-    { note: 'C', forceMinor: false },
-    { note: 'D', forceMinor: false },
-    { note: 'E', forceMinor: true },
-  ];
+/** I-IV-V-vi degree offsets in semitones from the root */
+const PROGRESSION_DEGREES: { offset: number; forceMinor: boolean }[] = [
+  { offset: 0, forceMinor: false },   // I
+  { offset: 5, forceMinor: false },   // IV
+  { offset: 7, forceMinor: false },   // V
+  { offset: 9, forceMinor: true },    // vi (always minor)
+];
 
-  const chords: ChordDefinition[] = roots.map(({ note, forceMinor }) => {
+const PC_TO_NOTE: Record<PitchClass, NoteName> = {
+  0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F',
+  6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B',
+};
+
+/**
+ * Build I-IV-V-vi progression for any major key.
+ * vi chord forced to min7 (diatonically correct).
+ */
+export function getProgressionForKey(key: NoteName, quality: ChordQuality): ProgressionDefinition {
+  const rootPc = NOTE_TO_PC[key];
+
+  const chords: ChordDefinition[] = PROGRESSION_DEGREES.map(({ offset, forceMinor }) => {
+    const pc = ((rootPc + offset) % 12) as PitchClass;
+    const note = PC_TO_NOTE[pc];
     const q = forceMinor ? 'min7' : quality;
     return {
       root: note,
-      rootPitchClass: NOTE_TO_PC[note],
+      rootPitchClass: pc,
       quality: q,
       label: makeChordLabel(note, q),
     };
   });
 
   return {
-    name: 'G Major',
-    key: 'G',
+    name: `${key} Major`,
+    key,
     chords,
   };
+}
+
+/** Alias for backward compatibility */
+export function getGMajorProgression(quality: ChordQuality): ProgressionDefinition {
+  return getProgressionForKey('G', quality);
 }

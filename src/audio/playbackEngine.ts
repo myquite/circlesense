@@ -1,8 +1,8 @@
 import type { Conductor } from './conductor';
 import type { BarEvent, TransportEvent } from './conductor.types';
 import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection } from './playbackEngine.types';
-import type { ChordQuality } from '../engine/chordData.types';
-import { buildVoicing, getGMajorProgression } from '../engine/chordData';
+import type { ChordQuality, NoteName } from '../engine/chordData.types';
+import { buildVoicing, getProgressionForKey } from '../engine/chordData';
 import type { ProgressionDefinition } from '../engine/chordData.types';
 
 const ATTACK_SEC = 0.01;
@@ -16,6 +16,7 @@ export class PlaybackEngine {
   private progression: ProgressionDefinition;
   private chordIndex = 0;
   private chordQuality: ChordQuality = 'dom7';
+  private key: NoteName = 'G';
   private direction: PlaybackDirection = 'clockwise';
   private barCounter = 0;
   private playing = false;
@@ -35,7 +36,7 @@ export class PlaybackEngine {
     this.masterGain.gain.value = 0.3;
     this.masterGain.connect(this.ctx.destination);
 
-    this.progression = getGMajorProgression(this.chordQuality);
+    this.progression = getProgressionForKey(this.key, this.chordQuality);
     this.currentSnapshot = this.buildSnapshot();
 
     this.unsubBar = conductor.on('bar', (e) => this.handleBar(e));
@@ -157,10 +158,18 @@ export class PlaybackEngine {
 
   // --- Public API ---
 
+  setKey(key: NoteName): void {
+    if (key === this.key) return;
+    this.key = key;
+    this.progression = getProgressionForKey(this.key, this.chordQuality);
+    this.chordIndex = 0;
+    this.notifySnapshot();
+  }
+
   setChordQuality(quality: ChordQuality): void {
     if (quality === this.chordQuality) return;
     this.chordQuality = quality;
-    this.progression = getGMajorProgression(quality);
+    this.progression = getProgressionForKey(this.key, quality);
     this.chordIndex = 0;
     this.notifySnapshot();
   }
@@ -212,6 +221,7 @@ export class PlaybackEngine {
       nextChord: chords[nextIdx] ?? null,
       chordIndex: currentIdx,
       chordQuality: this.chordQuality,
+      key: this.key,
       isActive: this.playing,
       direction: this.direction,
       progressionLabels: chords.map((c) => c.label),

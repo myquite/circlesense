@@ -17,6 +17,7 @@ export function useSettingsPersistence(): void {
     if (saved) {
       conductor.setBpm(saved.bpm);
       conductor.setBarLength(saved.barLength);
+      playbackEngine.setKey(saved.key);
       playbackEngine.setChordQuality(saved.chordQuality);
       playbackEngine.setDirection(saved.direction);
     }
@@ -30,6 +31,7 @@ export function useSettingsPersistence(): void {
         const settings: Settings = {
           bpm: cSnap.config.bpm,
           barLength: cSnap.config.barLength,
+          key: pSnap.key,
           chordQuality: pSnap.chordQuality,
           direction: pSnap.direction,
         };

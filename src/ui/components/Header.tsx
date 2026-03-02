@@ -1,7 +1,11 @@
 import { useConductor } from '../../audio/useConductor';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useJudge } from '../../engine/useJudge';
-import type { ChordQuality } from '../../engine/chordData.types';
+import type { ChordQuality, NoteName } from '../../engine/chordData.types';
+
+const KEY_OPTIONS: NoteName[] = [
+  'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
+];
 
 const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
   { value: 'maj7', label: 'Major 7' },
@@ -12,7 +16,7 @@ const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
 
 export default function Header() {
   const { transport, config, play, pause, stop, setBpm, setBarLength } = useConductor();
-  const { chordQuality, setChordQuality } = usePlaybackEngine();
+  const { key, setKey, chordQuality, setChordQuality } = usePlaybackEngine();
   const { resetSession } = useJudge();
 
   const isPlaying = transport === 'playing';
@@ -70,6 +74,18 @@ export default function Header() {
             value={config.bpm}
             onChange={(e) => setBpm(Number(e.target.value))}
           />
+        </div>
+        <div className="flex flex-col gap-1 w-28">
+          <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Key</span>
+          <select
+            className="bg-surface border border-border-muted text-xs rounded-lg px-2 py-1 focus:ring-primary focus:border-primary"
+            value={key}
+            onChange={(e) => setKey(e.target.value as NoteName)}
+          >
+            {KEY_OPTIONS.map((k) => (
+              <option key={k} value={k}>{k} Major</option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-col gap-1 w-48">
           <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Chord Type</span>

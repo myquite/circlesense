@@ -1,27 +1,31 @@
+import { useMemo } from 'react';
 import { useJudge } from '../../engine/useJudge';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useMidiInput } from '../../input/useMidiInput';
 import { useMicInput } from '../../input/useMicInput';
-import { buildVoicing } from '../../engine/chordData';
-import { G_MAJOR_SCALE } from '../../engine/scaleData';
+import { buildVoicing, NOTE_TO_PC } from '../../engine/chordData';
+import { getMajorScale, PC_TO_NOTE_NAME } from '../../engine/scaleData';
 import type { PitchClass } from '../../engine/chordData.types';
 
-/** Ordered G Major scale notes for display */
-const SCALE_NOTES: { pitchClass: PitchClass; note: string }[] = [
-  { pitchClass: 7, note: 'G' },
-  { pitchClass: 9, note: 'A' },
-  { pitchClass: 11, note: 'B' },
-  { pitchClass: 0, note: 'C' },
-  { pitchClass: 2, note: 'D' },
-  { pitchClass: 4, note: 'E' },
-  { pitchClass: 6, note: 'F#' },
-];
+/** Major scale interval pattern in semitones */
+const MAJOR_INTERVALS = [0, 2, 4, 5, 7, 9, 11] as const;
 
 export default function ScaleGuardrail() {
   const { lastDetectedName, lastDetectedNote, isInScale, isActive } = useJudge();
-  const { currentChord } = usePlaybackEngine();
+  const { currentChord, key } = usePlaybackEngine();
   const midi = useMidiInput();
   const mic = useMicInput();
+
+  // Compute scale notes ordered from root
+  const rootPc = NOTE_TO_PC[key];
+  const scale = useMemo(() => getMajorScale(rootPc), [rootPc]);
+  const scaleNotes = useMemo(() =>
+    MAJOR_INTERVALS.map((i) => {
+      const pc = ((rootPc + i) % 12) as PitchClass;
+      return { pitchClass: pc, note: PC_TO_NOTE_NAME[pc] };
+    }),
+    [rootPc],
+  );
 
   // Get current chord tones for highlighting
   const chordTones = new Set<PitchClass>();
@@ -46,17 +50,16 @@ export default function ScaleGuardrail() {
       <div className="flex flex-col gap-1 min-w-[200px]">
         <span className="text-[10px] uppercase font-bold text-slate-500 tracking-tighter">Selected Guardrail</span>
         <div className="flex items-center gap-2">
-          <span className="text-lg font-black text-primary">G MAJOR</span>
-          <span className="material-symbols-outlined text-slate-500 text-sm">lock</span>
+          <span className="text-lg font-black text-primary">{key} MAJOR</span>
         </div>
       </div>
 
       <div className="flex-1 flex gap-2">
         <div className="flex-1 bg-background-dark/50 rounded-xl p-2 flex items-center justify-between border border-border-muted/50">
           <div className="flex items-center gap-2">
-            {SCALE_NOTES.map(({ pitchClass, note }) => {
+            {scaleNotes.map(({ pitchClass, note }) => {
               const isChordTone = chordTones.has(pitchClass);
-              const isInScaleNote = G_MAJOR_SCALE.has(pitchClass);
+              const isInScaleNote = scale.has(pitchClass);
 
               return (
                 <div

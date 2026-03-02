@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { PlaybackEngine } from './playbackEngine';
 import { getConductor } from './useConductor';
-import type { ChordQuality } from '../engine/chordData.types';
+import type { ChordQuality, NoteName } from '../engine/chordData.types';
 import type { PlaybackDirection } from './playbackEngine.types';
 
 let instance: PlaybackEngine | null = null;
@@ -21,6 +21,11 @@ export function usePlaybackEngine() {
     engine.getSnapshot,
   );
 
+  const setKey = useCallback(
+    (key: NoteName) => engine.setKey(key),
+    [engine],
+  );
+
   const setChordQuality = useCallback(
     (quality: ChordQuality) => engine.setChordQuality(quality),
     [engine],
@@ -33,6 +38,7 @@ export function usePlaybackEngine() {
 
   return {
     ...snapshot,
+    setKey,
     setChordQuality,
     setDirection,
   };
