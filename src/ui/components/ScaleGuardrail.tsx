@@ -1,6 +1,7 @@
 import { useJudge } from '../../engine/useJudge';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useMidiInput } from '../../input/useMidiInput';
+import { useMicInput } from '../../input/useMicInput';
 import { buildVoicing } from '../../engine/chordData';
 import { G_MAJOR_SCALE } from '../../engine/scaleData';
 import type { PitchClass } from '../../engine/chordData.types';
@@ -19,7 +20,8 @@ const SCALE_NOTES: { pitchClass: PitchClass; note: string }[] = [
 export default function ScaleGuardrail() {
   const { lastDetectedName, lastDetectedNote, isInScale, isActive } = useJudge();
   const { currentChord } = usePlaybackEngine();
-  const { isConnected, activeDevice, requestAccess } = useMidiInput();
+  const midi = useMidiInput();
+  const mic = useMicInput();
 
   // Get current chord tones for highlighting
   const chordTones = new Set<PitchClass>();
@@ -83,20 +85,37 @@ export default function ScaleGuardrail() {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => requestAccess()}
-        className="flex gap-4 cursor-pointer hover:opacity-80 transition-opacity"
-        title={isConnected ? 'Click to reconnect MIDI' : 'Click to connect MIDI device'}
-      >
-        <div className="flex flex-col items-end">
-          <span className="text-[10px] text-slate-500 font-bold uppercase">Input Source</span>
-          <span className="text-sm font-bold text-white flex items-center gap-2">
-            {activeDevice?.name ?? 'No Device'}
-            <span className={`size-2 rounded-full ${isConnected ? 'bg-primary' : 'bg-slate-600'}`} />
-          </span>
-        </div>
-      </button>
+      <div className="flex gap-4">
+        <button
+          type="button"
+          onClick={() => midi.requestAccess()}
+          className="flex gap-4 cursor-pointer hover:opacity-80 transition-opacity"
+          title={midi.isConnected ? 'Click to reconnect MIDI' : 'Click to connect MIDI device'}
+        >
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] text-slate-500 font-bold uppercase">MIDI</span>
+            <span className="text-sm font-bold text-white flex items-center gap-2">
+              {midi.activeDevice?.name ?? 'No Device'}
+              <span className={`size-2 rounded-full ${midi.isConnected ? 'bg-primary' : 'bg-slate-600'}`} />
+            </span>
+          </div>
+        </button>
+        <div className="w-px bg-border-muted" />
+        <button
+          type="button"
+          onClick={() => mic.isConnected ? mic.disconnect() : mic.requestAccess()}
+          className="flex gap-4 cursor-pointer hover:opacity-80 transition-opacity"
+          title={mic.isConnected ? 'Click to disconnect microphone' : 'Click to connect microphone'}
+        >
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] text-slate-500 font-bold uppercase">Mic</span>
+            <span className="text-sm font-bold text-white flex items-center gap-2">
+              {mic.activeDevice?.name ?? 'No Device'}
+              <span className={`size-2 rounded-full ${mic.isConnected ? 'bg-primary' : 'bg-slate-600'}`} />
+            </span>
+          </div>
+        </button>
+      </div>
     </footer>
   );
 }
