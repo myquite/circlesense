@@ -51,3 +51,123 @@ Before merging: verify BPM stability at 60/120/240, chord transitions align with
 ## Design Philosophy
 
 Clarity > Complexity. Stability > Flashiness. Accuracy > Gamification. This is a harmonic instrument, not an arcade toy.
+
+# 🧠 Jazz Orientation Layer
+
+## Why This Exists
+
+CircleSense is a harmonic training tool.
+When used for jazz improvisation, harmonic literacy means:
+
+* Understanding functional harmony
+* Reacting to chord movement
+* Targeting guide tones (3rds and 7ths)
+* Navigating dominant harmony fluently
+* Practicing ii–V–I fluency across keys
+
+This orientation must influence implementation decisions.
+
+---
+
+## Jazz-First Design Principles
+
+### 1. Progression > Static Harmony
+
+When adding or modifying progressions:
+
+* Prefer functional progressions (ii–V–I, turnarounds, blues)
+* Circle traversal may represent **key centers**, not just root movement
+* Avoid treating harmony as isolated unrelated chords
+
+---
+
+### 2. Chord Tones Matter
+
+Even in MVP:
+
+* UI must display chord tones for the current chord
+* 3rd and 7th (guide tones) must be visually emphasized
+* Chord tone pitch classes must be computable independently of scale logic
+
+Future scoring layers will depend on this.
+
+---
+
+### 3. Constraint Practice Is Valid
+
+The “Scale Guardrail” system is compatible with jazz when reframed as:
+
+* Practice Constraint
+
+Examples:
+
+* Diatonic-only constraint
+* Mixolydian-only constraint
+* Chord-tone-only constraint
+* Guide-tone-only constraint (future)
+
+Do not remove constraint system in pursuit of “real jazz realism.”
+Constraint-based practice is intentional pedagogy.
+
+---
+
+### 4. Deterministic First, Expressive Later
+
+Jazz improvisation is expressive.
+The app is deterministic.
+
+Do not:
+
+* Penalize silence
+* Over-penalize quick chromatic passing tones
+* Add complex tension heuristics in MVP
+
+Scoring must remain predictable and stable.
+
+---
+
+### 5. No Overreach Into AI Jazz Teacher Mode
+
+MVP does NOT attempt to:
+
+* Suggest best scales
+* Judge phrase quality
+* Evaluate rhythmic placement
+* Evaluate "outside" resolution
+
+Stay within:
+Pitch class + chord context only.
+
+---
+
+## Future-Compatible Structures (Design, Not Implement Yet)
+
+Ensure architecture supports:
+
+* Per-chord scoring contexts
+* Guide tone detection
+* Functional harmony awareness (ii–V–I generator)
+* Tritone substitution toggle
+* Chord-scale mapping table
+
+Do not build these yet.
+
+Just don’t block them.
+
+---
+
+## Why This Matters
+
+CircleSense is not:
+
+A pentatonic box trainer.
+
+It is:
+
+A harmonic awareness engine.
+
+When jazz is the orientation, correct engineering decisions today prevent refactors tomorrow.
+
+---
+
+## END JAZZ ORIENTATION

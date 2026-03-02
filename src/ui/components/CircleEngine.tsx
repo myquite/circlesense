@@ -1,69 +1,53 @@
 import { useConductor } from '../../audio/useConductor';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
+import type { NoteName } from '../../engine/chordData.types';
 
-const NODE_POSITIONS = [
-  { top: '0', left: '50%', transform: '-translate-x-1/2 -translate-y-1/2' },
-  { top: '50%', right: '0', transform: 'translate-x-1/2 -translate-y-1/2' },
-  { bottom: '0', left: '50%', transform: '-translate-x-1/2 translate-y-1/2' },
-  { top: '50%', left: '0', transform: '-translate-x-1/2 -translate-y-1/2' },
-] as const;
+/** Circle of Fifths in clockwise order, starting from C at top (12 o'clock) */
+const CIRCLE_OF_FIFTHS: NoteName[] = [
+  'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#', 'D#', 'A#', 'F',
+];
+
+const RADIUS = 190; // px from center to note node center
 
 export default function CircleEngine() {
   const { position, config, transport } = useConductor();
-  const { currentChord, direction, setDirection, chordIndex, progressionLabels } = usePlaybackEngine();
+  const { currentChord, direction, setDirection, progressionLabels } = usePlaybackEngine();
   const isPlaying = transport === 'playing';
+
+  const activeRoot = isPlaying ? currentChord?.root : null;
 
   return (
     <div className="flex-1 relative flex items-center justify-center bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent">
-      {/* Direction Indicators */}
-      <div className="absolute top-8 left-1/2 -translate-x-1/2 flex gap-4">
-        <button
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-bold transition-colors ${
-            direction === 'clockwise'
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-border-muted bg-surface text-slate-400'
-          }`}
-          onClick={() => setDirection('clockwise')}
-        >
-          <span className="material-symbols-outlined text-sm">rotate_right</span> CLOCKWISE
-        </button>
-        <button
-          className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-bold transition-colors ${
-            direction === 'counter'
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-border-muted bg-surface text-slate-400'
-          }`}
-          onClick={() => setDirection('counter')}
-        >
-          <span className="material-symbols-outlined text-sm">rotate_left</span> COUNTER
-        </button>
-      </div>
-
       {/* The Circle */}
-      <div className="relative size-[520px] rounded-full border-[12px] border-surface shadow-[0_0_50px_rgba(56,255,20,0.05)] flex items-center justify-center">
-        {/* Background Ring */}
-        <div className="absolute inset-0 rounded-full border border-border-muted/30 border-dashed animate-[spin_60s_linear_infinite]" />
+      <div className="relative size-[430px] rounded-full border border-border-muted/30 shadow-[0_0_50px_rgba(56,255,20,0.05)] flex items-center justify-center">
 
-        {/* Chord Nodes */}
-        {progressionLabels.map((label, i) => {
-          const pos = NODE_POSITIONS[i];
-          const isActiveNode = isPlaying && i === chordIndex;
+        {/* Circle of Fifths Nodes */}
+        {CIRCLE_OF_FIFTHS.map((note, i) => {
+          const angle = (i * 30 - 90) * (Math.PI / 180); // 30° per note, -90 to start at top
+          const x = Math.cos(angle) * RADIUS;
+          const y = Math.sin(angle) * RADIUS;
+          const isActive = note === activeRoot;
+          const isInProgression = progressionLabels.some(
+            (label) => label.startsWith(note) && (label.length === note.length || !/[A-G]/.test(label[note.length]))
+          );
+
           return (
             <div
-              key={i}
-              className={`absolute px-4 py-2 rounded-lg font-bold transition-all ${pos.transform} ${
-                isActiveNode
-                  ? 'bg-primary/20 border-2 border-primary text-primary shadow-[0_0_15px_rgba(56,255,20,0.3)]'
-                  : 'bg-surface border border-border-muted text-slate-400'
+              key={note}
+              className={`absolute flex items-center justify-center rounded-full font-bold text-sm transition-all duration-200 ${
+                isActive
+                  ? 'size-14 bg-primary/20 border-2 border-primary text-primary shadow-[0_0_20px_rgba(56,255,20,0.4)] scale-110 z-10'
+                  : isInProgression
+                    ? 'size-12 bg-primary/10 border border-primary/50 text-primary/80'
+                    : 'size-12 bg-surface border border-border-muted text-slate-400'
               }`}
               style={{
-                top: 'top' in pos ? pos.top : undefined,
-                bottom: 'bottom' in pos ? pos.bottom : undefined,
-                left: 'left' in pos ? pos.left : undefined,
-                right: 'right' in pos ? pos.right : undefined,
+                transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+                left: '50%',
+                top: '50%',
               }}
             >
-              {label}
+              {note}
             </div>
           );
         })}
@@ -88,6 +72,29 @@ export default function CircleEngine() {
                 />
               ))}
             </div>
+          </div>
+          {/* Direction Indicators */}
+          <div className="flex gap-3">
+            <button
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ${
+                direction === 'clockwise'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border-muted bg-surface text-slate-400'
+              }`}
+              onClick={() => setDirection('clockwise')}
+            >
+              <span className="material-symbols-outlined text-sm">rotate_right</span> CW
+            </button>
+            <button
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ${
+                direction === 'counter'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border-muted bg-surface text-slate-400'
+              }`}
+              onClick={() => setDirection('counter')}
+            >
+              <span className="material-symbols-outlined text-sm">rotate_left</span> CCW
+            </button>
           </div>
         </div>
       </div>
