@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { PlaybackEngine } from './playbackEngine';
 import { getConductor } from './useConductor';
 import type { ChordQuality } from '../engine/chordData.types';
+import type { PlaybackDirection } from './playbackEngine.types';
 
 let instance: PlaybackEngine | null = null;
 
@@ -25,8 +26,14 @@ export function usePlaybackEngine() {
     [engine],
   );
 
+  const setDirection = useCallback(
+    (dir: PlaybackDirection) => engine.setDirection(dir),
+    [engine],
+  );
+
   return {
     ...snapshot,
     setChordQuality,
+    setDirection,
   };
 }

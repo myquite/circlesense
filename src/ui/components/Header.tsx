@@ -1,5 +1,6 @@
 import { useConductor } from '../../audio/useConductor';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
+import { useJudge } from '../../engine/useJudge';
 import type { ChordQuality } from '../../engine/chordData.types';
 
 const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
@@ -12,6 +13,7 @@ const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
 export default function Header() {
   const { transport, config, play, pause, stop, setBpm, setBarLength } = useConductor();
   const { chordQuality, setChordQuality } = usePlaybackEngine();
+  const { resetSession } = useJudge();
 
   const isPlaying = transport === 'playing';
   const isPaused = transport === 'paused';
@@ -36,7 +38,7 @@ export default function Header() {
         </button>
         <button
           className="p-2 hover:bg-primary/20 rounded-lg transition-colors"
-          onClick={stop}
+          onClick={() => { stop(); resetSession(); }}
         >
           <span className={`material-symbols-outlined ${transport === 'stopped' ? 'text-slate-600' : ''}`}>stop</span>
         </button>

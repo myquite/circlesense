@@ -1,6 +1,6 @@
 import type { Conductor } from './conductor';
 import type { BarEvent, TransportEvent } from './conductor.types';
-import type { PlaybackEngineSnapshot, ActiveVoice } from './playbackEngine.types';
+import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection } from './playbackEngine.types';
 import type { ChordQuality } from '../engine/chordData.types';
 import { buildVoicing, getGMajorProgression } from '../engine/chordData';
 import type { ProgressionDefinition } from '../engine/chordData.types';
@@ -16,6 +16,7 @@ export class PlaybackEngine {
   private progression: ProgressionDefinition;
   private chordIndex = 0;
   private chordQuality: ChordQuality = 'dom7';
+  private direction: PlaybackDirection = 'clockwise';
   private barCounter = 0;
   private playing = false;
 
@@ -87,7 +88,9 @@ export class PlaybackEngine {
     this.scheduleChord(voicing.frequencies, audioTime, duration);
 
     // Advance index for next cycle
-    this.chordIndex = (this.chordIndex + 1) % this.progression.chords.length;
+    const step = this.direction === 'clockwise' ? 1 : -1;
+    const len = this.progression.chords.length;
+    this.chordIndex = ((this.chordIndex + step) + len) % len;
     this.notifySnapshot();
   }
 
@@ -162,6 +165,12 @@ export class PlaybackEngine {
     this.notifySnapshot();
   }
 
+  setDirection(dir: PlaybackDirection): void {
+    if (dir === this.direction) return;
+    this.direction = dir;
+    this.notifySnapshot();
+  }
+
   // --- useSyncExternalStore support ---
 
   subscribe = (callback: () => void): (() => void) => {
@@ -187,12 +196,16 @@ export class PlaybackEngine {
 
   private buildSnapshot(): PlaybackEngineSnapshot {
     const chords = this.progression.chords;
+    const len = chords.length;
+    const step = this.direction === 'clockwise' ? 1 : -1;
     // currentChord is the one currently playing (the one we just scheduled)
-    // Since chordIndex advances after scheduling, the current chord is at index - 1
+    // Since chordIndex advances after scheduling, the current chord is at index - step
     const currentIdx = this.playing
-      ? (this.chordIndex - 1 + chords.length) % chords.length
+      ? ((this.chordIndex - step) + len) % len
       : 0;
-    const nextIdx = this.playing ? this.chordIndex : 1 % chords.length;
+    const nextIdx = this.playing
+      ? this.chordIndex
+      : ((0 + step) + len) % len;
 
     return {
       currentChord: chords[currentIdx] ?? null,
@@ -200,6 +213,8 @@ export class PlaybackEngine {
       chordIndex: currentIdx,
       chordQuality: this.chordQuality,
       isActive: this.playing,
+      direction: this.direction,
+      progressionLabels: chords.map((c) => c.label),
     };
   }
 
