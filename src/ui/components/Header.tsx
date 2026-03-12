@@ -1,17 +1,35 @@
+import { useState, useRef, useEffect } from 'react';
 import { useConductor } from '../../audio/useConductor';
 import { useJudge } from '../../engine/useJudge';
+import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
+import { TONE_TYPES } from '../../audio/playbackEngine.types';
 
 export default function Header() {
   const { transport, config, play, pause, stop, setBpm, setBarLength } = useConductor();
   const { resetSession } = useJudge();
+  const { toneType, setToneType } = usePlaybackEngine();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   const isPlaying = transport === 'playing';
   const isCounting = transport === 'counting';
   const isRunning = isPlaying || isCounting;
   const isPaused = transport === 'paused';
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [settingsOpen]);
+
   return (
-    <header className="border-b border-border-muted bg-surface/50 backdrop-blur-md px-6 py-2 flex items-center justify-between gap-6 shrink-0">
+    <header className="border-b border-border-muted bg-surface/50 backdrop-blur-md px-6 py-2 flex items-center justify-between gap-6 shrink-0 relative z-50">
       <div className="flex items-center gap-3">
         <div className="text-primary size-6">
           <span className="material-symbols-outlined text-3xl">adjust</span>
@@ -81,9 +99,44 @@ export default function Header() {
             </button>
           ))}
         </div>
-        <button className="p-2 border border-border-muted rounded-lg text-slate-400">
-          <span className="material-symbols-outlined">settings</span>
-        </button>
+
+        {/* Settings dropdown */}
+        <div className="relative" ref={settingsRef}>
+          <button
+            className={`size-9 flex items-center justify-center rounded border transition-colors ${
+              settingsOpen
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-border-muted text-slate-400 hover:border-primary/30 hover:text-primary'
+            }`}
+            onClick={() => setSettingsOpen(!settingsOpen)}
+          >
+            <span className="material-symbols-outlined text-lg">settings</span>
+          </button>
+
+          {settingsOpen && (
+            <div className="absolute right-0 top-full mt-2 w-48 bg-background-dark border border-border-muted rounded-lg shadow-2xl z-[100] py-2">
+              <div className="px-3 py-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Tone</span>
+              </div>
+              {TONE_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
+                    toneType === t.value
+                      ? 'text-primary bg-primary/10 font-bold'
+                      : 'text-slate-400 hover:bg-primary/5 hover:text-slate-300'
+                  }`}
+                  onClick={() => {
+                    setToneType(t.value);
+                    setSettingsOpen(false);
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

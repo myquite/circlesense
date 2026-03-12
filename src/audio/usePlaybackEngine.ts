@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { PlaybackEngine } from './playbackEngine';
 import { getConductor } from './useConductor';
 import type { ChordDefinition } from '../engine/chordData.types';
-import type { PlaybackDirection, PlaybackMode } from './playbackEngine.types';
+import type { PlaybackDirection, PlaybackMode, ToneType } from './playbackEngine.types';
 
 let instance: PlaybackEngine | null = null;
 
@@ -51,6 +51,11 @@ export function usePlaybackEngine() {
     [engine],
   );
 
+  const setToneType = useCallback(
+    (tone: ToneType) => engine.setToneType(tone),
+    [engine],
+  );
+
   return {
     ...snapshot,
     setProgression,
@@ -59,5 +64,6 @@ export function usePlaybackEngine() {
     clearProgression,
     setDirection,
     setPlaybackMode,
+    setToneType,
   };
 }

@@ -1,6 +1,6 @@
 import type { Conductor } from './conductor';
 import type { BarEvent, TransportEvent } from './conductor.types';
-import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection, PlaybackMode } from './playbackEngine.types';
+import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection, PlaybackMode, ToneType } from './playbackEngine.types';
 import type { ChordDefinition } from '../engine/chordData.types';
 import { buildVoicing } from '../engine/chordData';
 
@@ -17,6 +17,7 @@ export class PlaybackEngine {
   private playingIndex = 0;
   private direction: PlaybackDirection = 'clockwise';
   private playbackMode: PlaybackMode = 'sequential';
+  private toneType: ToneType = 'piano';
   private playing = false;
   private firstChordScheduled = false;
 
@@ -46,11 +47,9 @@ export class PlaybackEngine {
   private handleBar(event: BarEvent): void {
     if (event.bar === 0 && this.progression.length > 0) {
       if (!this.firstChordScheduled) {
-        // First chord of the session — play at playingIndex (0)
         this.firstChordScheduled = true;
         this.scheduleCurrentChord(event.audioTime);
       } else {
-        // Advance to next chord, then schedule it
         this.advancePlayingIndex();
         this.scheduleCurrentChord(event.audioTime);
       }
@@ -121,12 +120,26 @@ export class PlaybackEngine {
     return ((this.playingIndex + step) + len) % len;
   }
 
+  // --- Tone Synthesis ---
+
   private scheduleChord(frequencies: number[], startTime: number, duration: number): void {
-    const voice: ActiveVoice = {
-      oscillators: [],
-      gains: [],
-      stopTime: startTime + duration,
-    };
+    switch (this.toneType) {
+      case 'piano':
+        this.schedulePianoChord(frequencies, startTime, duration);
+        break;
+      case 'warm-pad':
+        this.scheduleWarmPadChord(frequencies, startTime, duration);
+        break;
+      default:
+        this.scheduleTriangleChord(frequencies, startTime, duration);
+        break;
+    }
+  }
+
+  /** Clean triangle wave — simple, mellow, sustained */
+  private scheduleTriangleChord(frequencies: number[], startTime: number, duration: number): void {
+    const voice: ActiveVoice = { nodes: [], stopTime: startTime + duration };
+    const noteGain = 0.8 / frequencies.length;
 
     for (const freq of frequencies) {
       const osc = this.ctx.createOscillator();
@@ -135,37 +148,160 @@ export class PlaybackEngine {
 
       const gain = this.ctx.createGain();
       gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(1, startTime + ATTACK_SEC);
-      gain.gain.setValueAtTime(1, startTime + duration - RELEASE_SEC);
+      gain.gain.linearRampToValueAtTime(noteGain, startTime + ATTACK_SEC);
+      gain.gain.setValueAtTime(noteGain, startTime + duration - RELEASE_SEC);
       gain.gain.linearRampToValueAtTime(0, startTime + duration);
 
       osc.connect(gain);
       gain.connect(this.masterGain);
-
       osc.start(startTime);
       osc.stop(startTime + duration + 0.01);
 
-      voice.oscillators.push(osc);
-      voice.gains.push(gain);
+      voice.nodes.push(osc, gain);
     }
 
-    this.activeVoices.push(voice);
+    this.trackVoice(voice);
+  }
 
+  /**
+   * Piano-like tone using FM synthesis + harmonics with percussive decay.
+   * Sharp hammer attack, rapid decay to a quiet sustain, then release.
+   */
+  private schedulePianoChord(frequencies: number[], startTime: number, duration: number): void {
+    const voice: ActiveVoice = { nodes: [], stopTime: startTime + duration };
+    const noteGain = 1.0 / frequencies.length;
+
+    for (const freq of frequencies) {
+      // Per-note output envelope (percussive: fast attack, exponential decay)
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(0, startTime);
+      env.gain.linearRampToValueAtTime(noteGain, startTime + 0.003);
+      // Decay to 15% over ~0.8s (piano-like sustain drop)
+      env.gain.setTargetAtTime(noteGain * 0.15, startTime + 0.003, 0.3);
+      // Final release
+      env.gain.setTargetAtTime(0.0001, startTime + duration - 0.05, 0.03);
+      env.connect(this.masterGain);
+
+      // FM modulator for the "hammer" brightness at attack
+      const mod = this.ctx.createOscillator();
+      mod.type = 'sine';
+      mod.frequency.value = freq * 2; // modulator at 2x carrier
+      const modGain = this.ctx.createGain();
+      // High modulation index at attack, decays quickly = bright then mellow
+      modGain.gain.setValueAtTime(freq * 1.5, startTime);
+      modGain.gain.setTargetAtTime(0, startTime + 0.01, 0.08);
+      mod.connect(modGain);
+
+      // Carrier oscillator
+      const carrier = this.ctx.createOscillator();
+      carrier.type = 'sine';
+      carrier.frequency.value = freq;
+      modGain.connect(carrier.frequency); // FM connection
+
+      carrier.connect(env);
+
+      // Add a quiet second harmonic for body
+      const harm2 = this.ctx.createOscillator();
+      harm2.type = 'sine';
+      harm2.frequency.value = freq * 2;
+      const harm2Gain = this.ctx.createGain();
+      harm2Gain.gain.setValueAtTime(0.3, startTime);
+      harm2Gain.gain.setTargetAtTime(0.02, startTime + 0.01, 0.15);
+      harm2.connect(harm2Gain);
+      harm2Gain.connect(env);
+
+      // Third harmonic — very quiet, adds shimmer
+      const harm3 = this.ctx.createOscillator();
+      harm3.type = 'sine';
+      harm3.frequency.value = freq * 3;
+      const harm3Gain = this.ctx.createGain();
+      harm3Gain.gain.setValueAtTime(0.15, startTime);
+      harm3Gain.gain.setTargetAtTime(0.0, startTime + 0.01, 0.08);
+      harm3.connect(harm3Gain);
+      harm3Gain.connect(env);
+
+      const stopAt = startTime + duration + 0.1;
+      mod.start(startTime);
+      mod.stop(stopAt);
+      carrier.start(startTime);
+      carrier.stop(stopAt);
+      harm2.start(startTime);
+      harm2.stop(stopAt);
+      harm3.start(startTime);
+      harm3.stop(stopAt);
+
+      voice.nodes.push(mod, modGain, carrier, harm2, harm2Gain, harm3, harm3Gain, env);
+    }
+
+    this.trackVoice(voice);
+  }
+
+  /**
+   * Warm pad: thick, slow, evolving texture.
+   * 3 detuned sawtooths through a sweeping low-pass filter, slow attack/release.
+   */
+  private scheduleWarmPadChord(frequencies: number[], startTime: number, duration: number): void {
+    const voice: ActiveVoice = { nodes: [], stopTime: startTime + duration };
+    const noteGain = 0.7 / frequencies.length;
+
+    for (const freq of frequencies) {
+      // Slow swell envelope
+      const env = this.ctx.createGain();
+      env.gain.setValueAtTime(0, startTime);
+      env.gain.linearRampToValueAtTime(noteGain, startTime + Math.min(0.8, duration * 0.3));
+      env.gain.setValueAtTime(noteGain, startTime + duration - Math.min(0.8, duration * 0.3));
+      env.gain.linearRampToValueAtTime(0, startTime + duration);
+
+      // Low-pass filter with slow sweep for movement
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(400, startTime);
+      filter.frequency.linearRampToValueAtTime(1200, startTime + duration * 0.4);
+      filter.frequency.linearRampToValueAtTime(600, startTime + duration);
+      filter.Q.value = 1.5;
+
+      filter.connect(env);
+      env.connect(this.masterGain);
+
+      // Three detuned sawtooth oscillators for a wide, thick sound
+      for (const detune of [-15, 0, 15]) {
+        const osc = this.ctx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+        osc.detune.value = detune;
+
+        osc.connect(filter);
+        osc.start(startTime);
+        osc.stop(startTime + duration + 0.1);
+
+        voice.nodes.push(osc);
+      }
+
+      voice.nodes.push(filter, env);
+    }
+
+    this.trackVoice(voice);
+  }
+
+  private trackVoice(voice: ActiveVoice): void {
+    this.activeVoices.push(voice);
     setTimeout(() => {
       this.activeVoices = this.activeVoices.filter((v) => v !== voice);
-    }, (voice.stopTime - this.ctx.currentTime) * 1000 + 100);
+    }, (voice.stopTime - this.ctx.currentTime) * 1000 + 200);
   }
 
   private fadeOutAllVoices(): void {
     const now = this.ctx.currentTime;
     for (const voice of this.activeVoices) {
-      for (const gain of voice.gains) {
-        gain.gain.cancelScheduledValues(now);
-        gain.gain.setValueAtTime(gain.gain.value, now);
-        gain.gain.linearRampToValueAtTime(0, now + RELEASE_SEC);
-      }
-      for (const osc of voice.oscillators) {
-        osc.stop(now + RELEASE_SEC + 0.01);
+      for (const node of voice.nodes) {
+        if (node instanceof GainNode) {
+          node.gain.cancelScheduledValues(now);
+          node.gain.setValueAtTime(node.gain.value, now);
+          node.gain.linearRampToValueAtTime(0, now + RELEASE_SEC);
+        }
+        if (node instanceof OscillatorNode) {
+          try { node.stop(now + RELEASE_SEC + 0.01); } catch { /* already stopped */ }
+        }
       }
     }
     this.activeVoices = [];
@@ -174,8 +310,10 @@ export class PlaybackEngine {
   private killAllVoices(): void {
     const now = this.ctx.currentTime;
     for (const voice of this.activeVoices) {
-      for (const osc of voice.oscillators) {
-        try { osc.stop(now); } catch { /* already stopped */ }
+      for (const node of voice.nodes) {
+        if (node instanceof OscillatorNode) {
+          try { node.stop(now); } catch { /* already stopped */ }
+        }
       }
     }
     this.activeVoices = [];
@@ -223,6 +361,25 @@ export class PlaybackEngine {
     this.notifySnapshot();
   }
 
+  setToneType(tone: ToneType): void {
+    if (tone === this.toneType) return;
+    this.toneType = tone;
+
+    // Re-trigger current chord immediately so the user hears the difference
+    if (this.playing && this.progression.length > 0) {
+      this.fadeOutAllVoices();
+      const chord = this.progression[this.playingIndex];
+      const voicing = buildVoicing(chord.rootPitchClass, chord.quality);
+      const { bpm, beatsPerBar, barLength } = this.conductor.getSnapshot().config;
+      const secsPerBeat = 60 / bpm;
+      // Use remaining time as a rough duration
+      const duration = beatsPerBar * barLength * secsPerBeat;
+      this.scheduleChord(voicing.frequencies, this.ctx.currentTime + 0.05, duration);
+    }
+
+    this.notifySnapshot();
+  }
+
   // --- useSyncExternalStore support ---
 
   subscribe = (callback: () => void): (() => void) => {
@@ -256,6 +413,7 @@ export class PlaybackEngine {
       isActive: this.playing,
       direction: this.direction,
       playbackMode: this.playbackMode,
+      toneType: this.toneType,
       progression: [...this.progression],
     };
   }

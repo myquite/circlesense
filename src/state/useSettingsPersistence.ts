@@ -19,6 +19,7 @@ export function useSettingsPersistence(): void {
       conductor.setBarLength(saved.barLength);
       playbackEngine.setDirection(saved.direction);
       playbackEngine.setPlaybackMode(saved.playbackMode);
+      playbackEngine.setToneType(saved.toneType);
       if (saved.progression.length > 0) {
         playbackEngine.setProgression(saved.progression);
       }
@@ -35,6 +36,7 @@ export function useSettingsPersistence(): void {
           barLength: cSnap.config.barLength,
           direction: pSnap.direction,
           playbackMode: pSnap.playbackMode,
+          toneType: pSnap.toneType,
           progression: pSnap.progression,
         };
         saveSettings(settings);
