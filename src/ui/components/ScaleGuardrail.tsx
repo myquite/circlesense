@@ -5,7 +5,6 @@ import { useMidiInput } from '../../input/useMidiInput';
 import { useMicInput } from '../../input/useMicInput';
 import { buildVoicing } from '../../engine/chordData';
 import { PC_TO_NOTE_NAME } from '../../engine/scaleData';
-import type { PitchClass } from '../../engine/chordData.types';
 
 export default function ScaleGuardrail() {
   const { lastDetectedName, lastDetectedNote, isInChord, isActive } = useJudge();
