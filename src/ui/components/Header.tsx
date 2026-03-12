@@ -11,7 +11,7 @@ export default function Header() {
   const isPaused = transport === 'paused';
 
   return (
-    <header className="border-b border-border-muted bg-surface/50 backdrop-blur-md px-6 py-3 flex items-center justify-between gap-6">
+    <header className="border-b border-border-muted bg-surface/50 backdrop-blur-md px-6 py-2 flex items-center justify-between gap-6 shrink-0">
       <div className="flex items-center gap-3">
         <div className="text-primary size-6">
           <span className="material-symbols-outlined text-3xl">adjust</span>
@@ -21,18 +21,18 @@ export default function Header() {
 
       <div className="flex items-center gap-4 bg-background-dark/50 p-1.5 rounded-lg border border-border-muted">
         <button
-          className={`p-2 rounded-lg transition-colors ${isRunning ? 'bg-primary/20' : 'hover:bg-primary/20'}`}
+          className={`size-9 flex items-center justify-center rounded border transition-colors ${isRunning ? 'bg-primary/20 border-primary/30' : 'border-border-muted hover:bg-primary/20 hover:border-primary/30'}`}
           onClick={isRunning ? pause : play}
         >
-          <span className="material-symbols-outlined text-primary">
+          <span className="material-symbols-outlined text-primary text-lg">
             {isRunning ? 'pause' : 'play_arrow'}
           </span>
         </button>
         <button
-          className="p-2 hover:bg-primary/20 rounded-lg transition-colors"
+          className="size-9 flex items-center justify-center rounded border border-border-muted hover:bg-primary/20 hover:border-primary/30 transition-colors"
           onClick={() => { stop(); resetSession(); }}
         >
-          <span className={`material-symbols-outlined ${transport === 'stopped' ? 'text-slate-600' : ''}`}>stop</span>
+          <span className={`material-symbols-outlined text-lg ${transport === 'stopped' ? 'text-slate-600' : ''}`}>stop</span>
         </button>
         <div className="w-px h-6 bg-border-muted mx-2" />
         <div className="flex items-center gap-2 px-2">

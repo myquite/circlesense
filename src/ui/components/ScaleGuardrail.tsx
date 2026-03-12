@@ -34,7 +34,7 @@ export default function ScaleGuardrail() {
     : 'border-slate-600 text-slate-500';
 
   return (
-    <footer className="bg-surface border-t border-border-muted p-4 flex items-center gap-8">
+    <footer className="bg-surface border-t border-border-muted px-4 py-2 flex items-center gap-8 shrink-0">
       <div className="flex flex-col gap-1 min-w-[200px]">
         <span className="text-[10px] uppercase font-bold text-slate-500 tracking-tighter">Current Chord</span>
         <div className="flex items-center gap-2">
