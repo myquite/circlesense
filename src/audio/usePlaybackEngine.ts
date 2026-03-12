@@ -1,8 +1,8 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { PlaybackEngine } from './playbackEngine';
 import { getConductor } from './useConductor';
-import type { ChordQuality, NoteName } from '../engine/chordData.types';
-import type { PlaybackDirection } from './playbackEngine.types';
+import type { ChordDefinition } from '../engine/chordData.types';
+import type { PlaybackDirection, PlaybackMode } from './playbackEngine.types';
 
 let instance: PlaybackEngine | null = null;
 
@@ -21,13 +21,23 @@ export function usePlaybackEngine() {
     engine.getSnapshot,
   );
 
-  const setKey = useCallback(
-    (key: NoteName) => engine.setKey(key),
+  const setProgression = useCallback(
+    (chords: ChordDefinition[]) => engine.setProgression(chords),
     [engine],
   );
 
-  const setChordQuality = useCallback(
-    (quality: ChordQuality) => engine.setChordQuality(quality),
+  const addChord = useCallback(
+    (chord: ChordDefinition) => engine.addChord(chord),
+    [engine],
+  );
+
+  const removeChord = useCallback(
+    (index: number) => engine.removeChord(index),
+    [engine],
+  );
+
+  const clearProgression = useCallback(
+    () => engine.clearProgression(),
     [engine],
   );
 
@@ -36,10 +46,18 @@ export function usePlaybackEngine() {
     [engine],
   );
 
+  const setPlaybackMode = useCallback(
+    (mode: PlaybackMode) => engine.setPlaybackMode(mode),
+    [engine],
+  );
+
   return {
     ...snapshot,
-    setKey,
-    setChordQuality,
+    setProgression,
+    addChord,
+    removeChord,
+    clearProgression,
     setDirection,
+    setPlaybackMode,
   };
 }

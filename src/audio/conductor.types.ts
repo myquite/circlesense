@@ -1,9 +1,9 @@
-export type TransportState = 'stopped' | 'playing' | 'paused';
+export type TransportState = 'stopped' | 'playing' | 'paused' | 'counting';
 
 export interface ConductorConfig {
   bpm: number;
   beatsPerBar: number;
-  barLength: 1 | 2;
+  barLength: 1 | 2 | 3 | 4;
 }
 
 export interface ConductorPosition {
@@ -42,4 +42,5 @@ export interface ConductorSnapshot {
   transport: TransportState;
   config: ConductorConfig;
   position: ConductorPosition;
+  countInBeat: number;
 }

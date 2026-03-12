@@ -22,7 +22,7 @@ export function useConductor() {
   const pause = useCallback(() => conductor.pause(), [conductor]);
   const stop = useCallback(() => conductor.stop(), [conductor]);
   const setBpm = useCallback((bpm: number) => conductor.setBpm(bpm), [conductor]);
-  const setBarLength = useCallback((len: 1 | 2) => conductor.setBarLength(len), [conductor]);
+  const setBarLength = useCallback((len: 1 | 2 | 3 | 4) => conductor.setBarLength(len), [conductor]);
 
   return {
     ...snapshot,

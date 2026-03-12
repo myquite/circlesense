@@ -17,9 +17,11 @@ export function useSettingsPersistence(): void {
     if (saved) {
       conductor.setBpm(saved.bpm);
       conductor.setBarLength(saved.barLength);
-      playbackEngine.setKey(saved.key);
-      playbackEngine.setChordQuality(saved.chordQuality);
       playbackEngine.setDirection(saved.direction);
+      playbackEngine.setPlaybackMode(saved.playbackMode);
+      if (saved.progression.length > 0) {
+        playbackEngine.setProgression(saved.progression);
+      }
     }
 
     // Persist settings on change (debounced)
@@ -31,9 +33,9 @@ export function useSettingsPersistence(): void {
         const settings: Settings = {
           bpm: cSnap.config.bpm,
           barLength: cSnap.config.barLength,
-          key: pSnap.key,
-          chordQuality: pSnap.chordQuality,
           direction: pSnap.direction,
+          playbackMode: pSnap.playbackMode,
+          progression: pSnap.progression,
         };
         saveSettings(settings);
       }, DEBOUNCE_MS);

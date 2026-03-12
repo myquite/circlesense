@@ -3,8 +3,8 @@ import type { PlaybackEngine } from '../audio/playbackEngine';
 import type { BarEvent, TransportEvent } from '../audio/conductor.types';
 import type { PitchClass } from './chordData.types';
 import type { JudgeSnapshot, OutOfScaleEntry } from './judge.types';
-import { buildVoicing, NOTE_TO_PC } from './chordData';
-import { getMajorScale, PC_TO_NOTE_NAME } from './scaleData';
+import { buildVoicing } from './chordData';
+import { getMajorScale, getNaturalMinorScale, PC_TO_NOTE_NAME } from './scaleData';
 
 const EMPTY_SNAPSHOT: JudgeSnapshot = {
   lastDetectedNote: null,
@@ -68,7 +68,9 @@ export class Judge {
     );
 
     const inChord = voicing.pitchClasses.includes(pitchClass);
-    const scale = getMajorScale(NOTE_TO_PC[snapshot.key]);
+    const scale = snapshot.currentChord.quality === 'minor'
+      ? getNaturalMinorScale(snapshot.currentChord.rootPitchClass)
+      : getMajorScale(snapshot.currentChord.rootPitchClass);
     const inScale = scale.has(pitchClass);
 
     // Update bar counters

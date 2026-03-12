@@ -4,7 +4,6 @@ import type {
   ChordQuality,
   ChordDefinition,
   ChordVoicing,
-  ProgressionDefinition,
 } from './chordData.types';
 
 export const NOTE_TO_PC: Record<NoteName, PitchClass> = {
@@ -12,19 +11,20 @@ export const NOTE_TO_PC: Record<NoteName, PitchClass> = {
   'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11,
 };
 
+export const PC_TO_NOTE: Record<PitchClass, NoteName> = {
+  0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F',
+  6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B',
+};
+
 /** Semitone intervals from root for each chord quality */
 const QUALITY_INTERVALS: Record<ChordQuality, number[]> = {
-  maj7: [0, 4, 7, 11],
-  dom7: [0, 4, 7, 10],
-  min7: [0, 3, 7, 10],
-  dim:  [0, 3, 6, 9],
+  major: [0, 4, 7],
+  minor: [0, 3, 7],
 };
 
 const QUALITY_LABELS: Record<ChordQuality, string> = {
-  maj7: 'maj7',
-  dom7: '7',
-  min7: 'm7',
-  dim:  'dim',
+  major: '',
+  minor: 'm',
 };
 
 /** Convert MIDI note number to Hz (A4 = 69 = 440 Hz) */
@@ -32,7 +32,7 @@ function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-export function makeChordLabel(root: NoteName, quality: ChordQuality): string {
+export function makeChordLabel(root: string, quality: ChordQuality): string {
   return `${root}${QUALITY_LABELS[quality]}`;
 }
 
@@ -42,7 +42,7 @@ export function buildVoicing(
   octave = 3,
 ): ChordVoicing {
   const intervals = QUALITY_INTERVALS[quality];
-  const baseMidi = 12 * (octave + 1) + rootPitchClass; // C3 = MIDI 48
+  const baseMidi = 12 * (octave + 1) + rootPitchClass;
 
   const frequencies: number[] = [];
   const pitchClasses: PitchClass[] = [];
@@ -56,46 +56,48 @@ export function buildVoicing(
   return { frequencies, pitchClasses };
 }
 
-/** I-IV-V-vi degree offsets in semitones from the root */
-const PROGRESSION_DEGREES: { offset: number; forceMinor: boolean }[] = [
-  { offset: 0, forceMinor: false },   // I
-  { offset: 5, forceMinor: false },   // IV
-  { offset: 7, forceMinor: false },   // V
-  { offset: 9, forceMinor: true },    // vi (always minor)
-];
-
-const PC_TO_NOTE: Record<PitchClass, NoteName> = {
-  0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F',
-  6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B',
-};
-
-/**
- * Build I-IV-V-vi progression for any major key.
- * vi chord forced to min7 (diatonically correct).
- */
-export function getProgressionForKey(key: NoteName, quality: ChordQuality): ProgressionDefinition {
-  const rootPc = NOTE_TO_PC[key];
-
-  const chords: ChordDefinition[] = PROGRESSION_DEGREES.map(({ offset, forceMinor }) => {
-    const pc = ((rootPc + offset) % 12) as PitchClass;
-    const note = PC_TO_NOTE[pc];
-    const q = forceMinor ? 'min7' : quality;
-    return {
-      root: note,
-      rootPitchClass: pc,
-      quality: q,
-      label: makeChordLabel(note, q),
-    };
-  });
-
+/** Build a ChordDefinition from a display name, root NoteName, and quality */
+export function makeChordDefinition(
+  displayName: string,
+  root: NoteName,
+  quality: ChordQuality,
+): ChordDefinition {
   return {
-    name: `${key} Major`,
-    key,
-    chords,
+    root,
+    rootPitchClass: NOTE_TO_PC[root],
+    quality,
+    label: displayName,
   };
 }
 
-/** Alias for backward compatibility */
-export function getGMajorProgression(quality: ChordQuality): ProgressionDefinition {
-  return getProgressionForKey('G', quality);
-}
+/** Circle of Fifths entries for UI — outer ring (major) */
+export const CIRCLE_MAJOR: { displayName: string; root: NoteName; quality: ChordQuality }[] = [
+  { displayName: 'C',  root: 'C',  quality: 'major' },
+  { displayName: 'G',  root: 'G',  quality: 'major' },
+  { displayName: 'D',  root: 'D',  quality: 'major' },
+  { displayName: 'A',  root: 'A',  quality: 'major' },
+  { displayName: 'E',  root: 'E',  quality: 'major' },
+  { displayName: 'B',  root: 'B',  quality: 'major' },
+  { displayName: 'F#', root: 'F#', quality: 'major' },
+  { displayName: 'Db', root: 'C#', quality: 'major' },
+  { displayName: 'Ab', root: 'G#', quality: 'major' },
+  { displayName: 'Eb', root: 'D#', quality: 'major' },
+  { displayName: 'Bb', root: 'A#', quality: 'major' },
+  { displayName: 'F',  root: 'F',  quality: 'major' },
+];
+
+/** Circle of Fifths entries for UI — inner ring (relative minor) */
+export const CIRCLE_MINOR: { displayName: string; root: NoteName; quality: ChordQuality }[] = [
+  { displayName: 'Am',  root: 'A',  quality: 'minor' },
+  { displayName: 'Em',  root: 'E',  quality: 'minor' },
+  { displayName: 'Bm',  root: 'B',  quality: 'minor' },
+  { displayName: 'F#m', root: 'F#', quality: 'minor' },
+  { displayName: 'C#m', root: 'C#', quality: 'minor' },
+  { displayName: 'G#m', root: 'G#', quality: 'minor' },
+  { displayName: 'Ebm', root: 'D#', quality: 'minor' },
+  { displayName: 'Bbm', root: 'A#', quality: 'minor' },
+  { displayName: 'Fm',  root: 'F',  quality: 'minor' },
+  { displayName: 'Cm',  root: 'C',  quality: 'minor' },
+  { displayName: 'Gm',  root: 'G',  quality: 'minor' },
+  { displayName: 'Dm',  root: 'D',  quality: 'minor' },
+];

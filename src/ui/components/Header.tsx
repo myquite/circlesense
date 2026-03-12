@@ -1,25 +1,13 @@
 import { useConductor } from '../../audio/useConductor';
-import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useJudge } from '../../engine/useJudge';
-import type { ChordQuality, NoteName } from '../../engine/chordData.types';
-
-const KEY_OPTIONS: NoteName[] = [
-  'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B',
-];
-
-const QUALITY_OPTIONS: { value: ChordQuality; label: string }[] = [
-  { value: 'maj7', label: 'Major 7' },
-  { value: 'dom7', label: 'Dominant 7' },
-  { value: 'min7', label: 'Minor 7' },
-  { value: 'dim', label: 'Diminished' },
-];
 
 export default function Header() {
   const { transport, config, play, pause, stop, setBpm, setBarLength } = useConductor();
-  const { key, setKey, chordQuality, setChordQuality } = usePlaybackEngine();
   const { resetSession } = useJudge();
 
   const isPlaying = transport === 'playing';
+  const isCounting = transport === 'counting';
+  const isRunning = isPlaying || isCounting;
   const isPaused = transport === 'paused';
 
   return (
@@ -33,11 +21,11 @@ export default function Header() {
 
       <div className="flex items-center gap-4 bg-background-dark/50 p-1.5 rounded-lg border border-border-muted">
         <button
-          className={`p-2 rounded-lg transition-colors ${isPlaying ? 'bg-primary/20' : 'hover:bg-primary/20'}`}
-          onClick={isPlaying ? pause : play}
+          className={`p-2 rounded-lg transition-colors ${isRunning ? 'bg-primary/20' : 'hover:bg-primary/20'}`}
+          onClick={isRunning ? pause : play}
         >
           <span className="material-symbols-outlined text-primary">
-            {isPlaying ? 'pause' : 'play_arrow'}
+            {isRunning ? 'pause' : 'play_arrow'}
           </span>
         </button>
         <button
@@ -48,6 +36,9 @@ export default function Header() {
         </button>
         <div className="w-px h-6 bg-border-muted mx-2" />
         <div className="flex items-center gap-2 px-2">
+          {isCounting && (
+            <span className="size-2 rounded-full bg-yellow-400 animate-pulse" />
+          )}
           {isPlaying && (
             <span className="size-2 rounded-full bg-primary shadow-[0_0_6px_#38ff14] animate-pulse" />
           )}
@@ -60,7 +51,7 @@ export default function Header() {
         </div>
       </div>
 
-      <div className="flex flex-1 max-w-2xl items-center gap-8">
+      <div className="flex flex-1 max-w-md items-center gap-8">
         <div className="flex flex-col flex-1 gap-1">
           <div className="flex justify-between text-[10px] uppercase tracking-widest text-slate-400 font-bold">
             <span>Tempo (BPM)</span>
@@ -68,58 +59,32 @@ export default function Header() {
           </div>
           <input
             className="w-full h-1.5 bg-border-muted rounded-full appearance-none cursor-pointer accent-primary"
-            max={300}
-            min={60}
+            max={180}
+            min={40}
+            step={10}
             type="range"
             value={config.bpm}
             onChange={(e) => setBpm(Number(e.target.value))}
           />
         </div>
-        <div className="flex flex-col gap-1 w-28">
-          <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Key</span>
-          <select
-            className="bg-surface border border-border-muted text-xs rounded-lg px-2 py-1 focus:ring-primary focus:border-primary"
-            value={key}
-            onChange={(e) => setKey(e.target.value as NoteName)}
-          >
-            {KEY_OPTIONS.map((k) => (
-              <option key={k} value={k}>{k} Major</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1 w-48">
-          <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Chord Type</span>
-          <select
-            className="bg-surface border border-border-muted text-xs rounded-lg px-2 py-1 focus:ring-primary focus:border-primary"
-            value={chordQuality}
-            onChange={(e) => setChordQuality(e.target.value as ChordQuality)}
-          >
-            {QUALITY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
       </div>
 
       <div className="flex items-center gap-3">
         <div className="flex bg-surface rounded-lg p-1 border border-border-muted">
-          <button
-            className={`px-3 py-1 text-xs font-bold rounded ${config.barLength === 1 ? 'bg-primary text-background-dark' : 'text-slate-400'}`}
-            onClick={() => setBarLength(1)}
-          >
-            1 Bar
-          </button>
-          <button
-            className={`px-3 py-1 text-xs font-bold rounded ${config.barLength === 2 ? 'bg-primary text-background-dark' : 'text-slate-400'}`}
-            onClick={() => setBarLength(2)}
-          >
-            2 Bars
-          </button>
+          {([1, 2, 3, 4] as const).map((n) => (
+            <button
+              key={n}
+              className={`px-3 py-1 text-xs font-bold rounded ${config.barLength === n ? 'bg-primary text-background-dark' : 'text-slate-400'}`}
+              onClick={() => setBarLength(n)}
+            >
+              {n} Bar{n > 1 ? 's' : ''}
+            </button>
+          ))}
         </div>
         <button className="p-2 border border-border-muted rounded-lg text-slate-400">
           <span className="material-symbols-outlined">settings</span>
         </button>
       </div>
     </header>
-  )
+  );
 }

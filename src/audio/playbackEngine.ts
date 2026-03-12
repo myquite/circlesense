@@ -1,9 +1,8 @@
 import type { Conductor } from './conductor';
 import type { BarEvent, TransportEvent } from './conductor.types';
-import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection } from './playbackEngine.types';
-import type { ChordQuality, NoteName } from '../engine/chordData.types';
-import { buildVoicing, getProgressionForKey } from '../engine/chordData';
-import type { ProgressionDefinition } from '../engine/chordData.types';
+import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection, PlaybackMode } from './playbackEngine.types';
+import type { ChordDefinition } from '../engine/chordData.types';
+import { buildVoicing } from '../engine/chordData';
 
 const ATTACK_SEC = 0.01;
 const RELEASE_SEC = 0.05;
@@ -13,13 +12,13 @@ export class PlaybackEngine {
   private ctx: AudioContext;
   private masterGain: GainNode;
 
-  private progression: ProgressionDefinition;
-  private chordIndex = 0;
-  private chordQuality: ChordQuality = 'dom7';
-  private key: NoteName = 'G';
+  private progression: ChordDefinition[] = [];
+  /** Index of the chord currently sounding */
+  private playingIndex = 0;
   private direction: PlaybackDirection = 'clockwise';
-  private barCounter = 0;
+  private playbackMode: PlaybackMode = 'sequential';
   private playing = false;
+  private firstChordScheduled = false;
 
   private activeVoices: ActiveVoice[] = [];
   private unsubBar: (() => void) | null = null;
@@ -36,7 +35,6 @@ export class PlaybackEngine {
     this.masterGain.gain.value = 0.3;
     this.masterGain.connect(this.ctx.destination);
 
-    this.progression = getProgressionForKey(this.key, this.chordQuality);
     this.currentSnapshot = this.buildSnapshot();
 
     this.unsubBar = conductor.on('bar', (e) => this.handleBar(e));
@@ -46,13 +44,16 @@ export class PlaybackEngine {
   // --- Event handlers ---
 
   private handleBar(event: BarEvent): void {
-    // Advance chord on cycle boundary (every barLength bars)
-    // bar === 0 means we're at the start of a new cycle
-    if (event.bar === 0) {
-      this.barCounter = 0;
-      this.scheduleNextChord(event.audioTime);
-    } else {
-      this.barCounter++;
+    if (event.bar === 0 && this.progression.length > 0) {
+      if (!this.firstChordScheduled) {
+        // First chord of the session — play at playingIndex (0)
+        this.firstChordScheduled = true;
+        this.scheduleCurrentChord(event.audioTime);
+      } else {
+        // Advance to next chord, then schedule it
+        this.advancePlayingIndex();
+        this.scheduleCurrentChord(event.audioTime);
+      }
     }
   }
 
@@ -60,8 +61,9 @@ export class PlaybackEngine {
     switch (event.state) {
       case 'playing':
         this.playing = true;
-        this.chordIndex = 0;
-        this.barCounter = 0;
+        this.playingIndex = 0;
+        this.firstChordScheduled = false;
+        this.notifySnapshot();
         break;
       case 'paused':
         this.playing = false;
@@ -71,15 +73,17 @@ export class PlaybackEngine {
       case 'stopped':
         this.playing = false;
         this.killAllVoices();
-        this.chordIndex = 0;
-        this.barCounter = 0;
+        this.playingIndex = 0;
+        this.firstChordScheduled = false;
         this.notifySnapshot();
         break;
     }
   }
 
-  private scheduleNextChord(audioTime: number): void {
-    const chord = this.progression.chords[this.chordIndex];
+  private scheduleCurrentChord(audioTime: number): void {
+    if (this.progression.length === 0) return;
+
+    const chord = this.progression[this.playingIndex];
     const voicing = buildVoicing(chord.rootPitchClass, chord.quality);
 
     const { bpm, beatsPerBar, barLength } = this.conductor.getSnapshot().config;
@@ -87,12 +91,34 @@ export class PlaybackEngine {
     const duration = beatsPerBar * barLength * secsPerBeat;
 
     this.scheduleChord(voicing.frequencies, audioTime, duration);
-
-    // Advance index for next cycle
-    const step = this.direction === 'clockwise' ? 1 : -1;
-    const len = this.progression.chords.length;
-    this.chordIndex = ((this.chordIndex + step) + len) % len;
     this.notifySnapshot();
+  }
+
+  private advancePlayingIndex(): void {
+    const len = this.progression.length;
+    if (len <= 1) return;
+
+    if (this.playbackMode === 'random') {
+      let next: number;
+      do {
+        next = Math.floor(Math.random() * len);
+      } while (next === this.playingIndex);
+      this.playingIndex = next;
+    } else {
+      const step = this.direction === 'clockwise' ? 1 : -1;
+      this.playingIndex = ((this.playingIndex + step) + len) % len;
+    }
+  }
+
+  private nextIndex(): number {
+    const len = this.progression.length;
+    if (len <= 1) return 0;
+
+    if (this.playbackMode === 'random') {
+      return this.playingIndex; // can't predict random
+    }
+    const step = this.direction === 'clockwise' ? 1 : -1;
+    return ((this.playingIndex + step) + len) % len;
   }
 
   private scheduleChord(frequencies: number[], startTime: number, duration: number): void {
@@ -117,7 +143,7 @@ export class PlaybackEngine {
       gain.connect(this.masterGain);
 
       osc.start(startTime);
-      osc.stop(startTime + duration + 0.01); // tiny buffer past release
+      osc.stop(startTime + duration + 0.01);
 
       voice.oscillators.push(osc);
       voice.gains.push(gain);
@@ -125,7 +151,6 @@ export class PlaybackEngine {
 
     this.activeVoices.push(voice);
 
-    // Clean up finished voices after they end
     setTimeout(() => {
       this.activeVoices = this.activeVoices.filter((v) => v !== voice);
     }, (voice.stopTime - this.ctx.currentTime) * 1000 + 100);
@@ -158,25 +183,43 @@ export class PlaybackEngine {
 
   // --- Public API ---
 
-  setKey(key: NoteName): void {
-    if (key === this.key) return;
-    this.key = key;
-    this.progression = getProgressionForKey(this.key, this.chordQuality);
-    this.chordIndex = 0;
+  setProgression(chords: ChordDefinition[]): void {
+    this.progression = [...chords];
+    this.playingIndex = 0;
+    this.firstChordScheduled = false;
     this.notifySnapshot();
   }
 
-  setChordQuality(quality: ChordQuality): void {
-    if (quality === this.chordQuality) return;
-    this.chordQuality = quality;
-    this.progression = getProgressionForKey(this.key, quality);
-    this.chordIndex = 0;
+  addChord(chord: ChordDefinition): void {
+    this.progression.push(chord);
+    this.notifySnapshot();
+  }
+
+  removeChord(index: number): void {
+    if (index < 0 || index >= this.progression.length) return;
+    this.progression.splice(index, 1);
+    if (this.playingIndex >= this.progression.length) {
+      this.playingIndex = 0;
+    }
+    this.notifySnapshot();
+  }
+
+  clearProgression(): void {
+    this.progression = [];
+    this.playingIndex = 0;
+    this.firstChordScheduled = false;
     this.notifySnapshot();
   }
 
   setDirection(dir: PlaybackDirection): void {
     if (dir === this.direction) return;
     this.direction = dir;
+    this.notifySnapshot();
+  }
+
+  setPlaybackMode(mode: PlaybackMode): void {
+    if (mode === this.playbackMode) return;
+    this.playbackMode = mode;
     this.notifySnapshot();
   }
 
@@ -204,27 +247,16 @@ export class PlaybackEngine {
   // --- Internal ---
 
   private buildSnapshot(): PlaybackEngineSnapshot {
-    const chords = this.progression.chords;
-    const len = chords.length;
-    const step = this.direction === 'clockwise' ? 1 : -1;
-    // currentChord is the one currently playing (the one we just scheduled)
-    // Since chordIndex advances after scheduling, the current chord is at index - step
-    const currentIdx = this.playing
-      ? ((this.chordIndex - step) + len) % len
-      : 0;
-    const nextIdx = this.playing
-      ? this.chordIndex
-      : ((0 + step) + len) % len;
+    const len = this.progression.length;
 
     return {
-      currentChord: chords[currentIdx] ?? null,
-      nextChord: chords[nextIdx] ?? null,
-      chordIndex: currentIdx,
-      chordQuality: this.chordQuality,
-      key: this.key,
+      currentChord: len > 0 ? (this.progression[this.playingIndex] ?? null) : null,
+      nextChord: len > 0 ? (this.progression[this.nextIndex()] ?? null) : null,
+      chordIndex: this.playingIndex,
       isActive: this.playing,
       direction: this.direction,
-      progressionLabels: chords.map((c) => c.label),
+      playbackMode: this.playbackMode,
+      progression: [...this.progression],
     };
   }
 

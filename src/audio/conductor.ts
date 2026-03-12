@@ -14,6 +14,7 @@ type Listener = (event: any) => void;
 
 const LOOKAHEAD_SEC = 0.1;
 const SCHEDULER_INTERVAL_MS = 25;
+const COUNT_IN_BEATS = 4;
 
 const DEFAULT_CONFIG: ConductorConfig = {
   bpm: 120,
@@ -25,10 +26,16 @@ export class Conductor {
   private ctx: AudioContext;
   private transport: TransportState = 'stopped';
   private config: ConductorConfig = { ...DEFAULT_CONFIG };
+  /** Scheduler position — may be ahead of what's audible */
   private position: ConductorPosition = { bar: 0, beat: 0, totalBars: 0 };
+  /** Display position — updates when the beat actually sounds */
+  private displayPosition: ConductorPosition = { bar: 0, beat: 0, totalBars: 0 };
 
+  private countInRemaining = 0;
+  private displayCountIn = 0;
   private nextBeatTime = 0;
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  private displayTimers: ReturnType<typeof setTimeout>[] = [];
   private listeners = new Map<EventType, Set<Listener>>();
   private snapshotListeners = new Set<() => void>();
   private currentSnapshot: ConductorSnapshot;
@@ -45,32 +52,41 @@ export class Conductor {
   // --- Transport controls ---
 
   play(): void {
-    if (this.transport === 'playing') return;
+    if (this.transport === 'playing' || this.transport === 'counting') return;
 
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
 
     const wasStoppedOrFirst = this.transport === 'stopped';
-    this.transport = 'playing';
 
     if (wasStoppedOrFirst) {
+      // Start count-in
+      this.transport = 'counting';
+      this.countInRemaining = COUNT_IN_BEATS;
+      this.displayCountIn = 0;
       this.position = { bar: 0, beat: 0, totalBars: 0 };
+      this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
       this.nextBeatTime = this.ctx.currentTime + 0.05;
+      this.startScheduler();
+      this.notifySnapshot();
     } else {
-      // Resuming from pause — schedule next beat shortly from now
+      // Resuming from pause — no count-in
+      this.transport = 'playing';
       this.nextBeatTime = this.ctx.currentTime + 0.05;
+      this.startScheduler();
+      this.emitTransport();
+      this.notifySnapshot();
     }
-
-    this.startScheduler();
-    this.emitTransport();
-    this.notifySnapshot();
   }
 
   pause(): void {
-    if (this.transport !== 'playing') return;
+    if (this.transport !== 'playing' && this.transport !== 'counting') return;
     this.transport = 'paused';
+    this.countInRemaining = 0;
+    this.displayCountIn = 0;
     this.stopScheduler();
+    this.clearDisplayTimers();
     this.emitTransport();
     this.notifySnapshot();
   }
@@ -78,8 +94,12 @@ export class Conductor {
   stop(): void {
     if (this.transport === 'stopped') return;
     this.transport = 'stopped';
+    this.countInRemaining = 0;
+    this.displayCountIn = 0;
     this.stopScheduler();
+    this.clearDisplayTimers();
     this.position = { bar: 0, beat: 0, totalBars: 0 };
+    this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
     this.emitTransport();
     this.notifySnapshot();
   }
@@ -88,7 +108,7 @@ export class Conductor {
     const clamped = Math.max(30, Math.min(400, bpm));
     if (clamped === this.config.bpm) return;
 
-    if (this.transport === 'playing') {
+    if (this.transport === 'playing' || this.transport === 'counting') {
       const oldSecsPerBeat = 60 / this.config.bpm;
       const newSecsPerBeat = 60 / clamped;
       const elapsed = this.ctx.currentTime - (this.nextBeatTime - oldSecsPerBeat);
@@ -100,7 +120,7 @@ export class Conductor {
     this.notifySnapshot();
   }
 
-  setBarLength(barLength: 1 | 2): void {
+  setBarLength(barLength: 1 | 2 | 3 | 4): void {
     if (barLength === this.config.barLength) return;
     this.config = { ...this.config, barLength };
     this.notifySnapshot();
@@ -136,6 +156,7 @@ export class Conductor {
 
   dispose(): void {
     this.stopScheduler();
+    this.clearDisplayTimers();
     this.listeners.clear();
     this.snapshotListeners.clear();
     this.ctx.close();
@@ -155,12 +176,56 @@ export class Conductor {
     }
   }
 
+  private clearDisplayTimers(): void {
+    for (const t of this.displayTimers) {
+      clearTimeout(t);
+    }
+    this.displayTimers = [];
+  }
+
+  /** Schedule a UI update to fire when a beat actually becomes audible */
+  private scheduleDisplayUpdate(audioTime: number, update: () => void): void {
+    const delayMs = Math.max(0, (audioTime - this.ctx.currentTime) * 1000);
+    const timer = setTimeout(() => {
+      update();
+      this.notifySnapshot();
+      this.displayTimers = this.displayTimers.filter((t) => t !== timer);
+    }, delayMs);
+    this.displayTimers.push(timer);
+  }
+
   private schedulerTick(): void {
     const deadline = this.ctx.currentTime + LOOKAHEAD_SEC;
     const secsPerBeat = 60 / this.config.bpm;
 
     while (this.nextBeatTime < deadline) {
       const audioTime = this.nextBeatTime;
+
+      if (this.transport === 'counting') {
+        // Count-in phase: tick beats but don't emit bar/cycle events
+        this.scheduleClick(audioTime);
+        const beatNum = COUNT_IN_BEATS - this.countInRemaining + 1;
+        this.countInRemaining--;
+
+        // Schedule display update for when this count-in beat sounds
+        this.scheduleDisplayUpdate(audioTime, () => {
+          this.displayCountIn = beatNum;
+        });
+
+        if (this.countInRemaining <= 0) {
+          // Count-in done — transition to playing
+          this.transport = 'playing';
+          this.position = { bar: 0, beat: 0, totalBars: 0 };
+          this.emitTransport();
+          this.nextBeatTime = audioTime + secsPerBeat;
+          break;
+        }
+
+        this.nextBeatTime = audioTime + secsPerBeat;
+        continue;
+      }
+
+      // Normal playback
       const { beat, bar } = this.position;
       const { beatsPerBar, barLength } = this.config;
 
@@ -177,7 +242,13 @@ export class Conductor {
         this.emit('cycle', { type: 'cycle', audioTime });
       }
 
-      // Advance position
+      // Schedule display update for when this beat actually sounds
+      const displayPos = { ...this.position };
+      this.scheduleDisplayUpdate(audioTime, () => {
+        this.displayPosition = displayPos;
+      });
+
+      // Advance scheduler position
       const nextBeat = beat + 1;
       if (nextBeat >= beatsPerBar) {
         const nextBar = bar + 1;
@@ -192,8 +263,23 @@ export class Conductor {
 
       this.nextBeatTime = audioTime + secsPerBeat;
     }
+  }
 
-    this.notifySnapshot();
+  private scheduleClick(audioTime: number): void {
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.value = 1000;
+
+    gain.gain.setValueAtTime(0.3, audioTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioTime + 0.08);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(audioTime);
+    osc.stop(audioTime + 0.1);
   }
 
   // --- Helpers ---
@@ -202,7 +288,8 @@ export class Conductor {
     return {
       transport: this.transport,
       config: { ...this.config },
-      position: { ...this.position },
+      position: { ...this.displayPosition },
+      countInBeat: this.displayCountIn,
     };
   }
 
