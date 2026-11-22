@@ -1,12 +1,16 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { MicInput } from './micInput';
 import { getJudge } from '../engine/useJudge';
+import { getConductor } from '../audio/useConductor';
 
 let instance: MicInput | null = null;
 
 export function getMicInput(): MicInput {
   if (!instance) {
-    instance = new MicInput((pitchClass) => getJudge().submitNote(pitchClass));
+    instance = new MicInput(
+      (pitchClass) => getJudge().submitNote(pitchClass),
+      () => getConductor().audioContext,
+    );
   }
   return instance;
 }

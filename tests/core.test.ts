@@ -296,7 +296,7 @@ test('a failed microphone switch falls back to the working device', async (t) =>
   const audioSession = { type: 'playback' };
   replace('navigator', { audioSession, mediaDevices: {
     getUserMedia: async ({ audio }: { audio: { deviceId?: { exact: string } } }) => {
-      if (audioSession.type !== 'play-and-record') throw new DOMException('session is playback-only', 'InvalidStateError');
+      if (audioSession.type === 'playback') throw new DOMException('session is playback-only', 'InvalidStateError');
       const id = audio.deviceId?.exact ?? 'a';
       if (id === 'denied') throw new DOMException('denied', 'NotAllowedError');
       if (id === 'broken') throw new Error('NotReadableError');
@@ -314,7 +314,19 @@ test('a failed microphone switch falls back to the working device', async (t) =>
   const mic = new MicInput(() => {});
   await mic.requestAccess();
   assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
-  assert.equal(audioSession.type, 'play-and-record');
+
+  // With a shared context the microphone wakes it but never closes it: playback owns it.
+  let resumed = 0; let closed = 0;
+  const shared = { state: 'interrupted', sampleRate: 48000, resume: () => { resumed++; return Promise.resolve(); }, close: () => { closed++; return Promise.resolve(); },
+    createAnalyser: () => ({ fftSize: 0, getFloatTimeDomainData() {} }), createMediaStreamSource: () => ({ connect() {}, disconnect() {} }) };
+  const sharedMic = new MicInput(() => {}, () => shared as unknown as AudioContext);
+  await sharedMic.requestAccess();
+  assert.equal(sharedMic.getSnapshot().isConnected, true);
+  assert.ok(resumed >= 1);
+  sharedMic.dispose();
+  assert.equal(closed, 0);
+  audioSession.type = 'auto'; // the first microphone is still open
+  assert.equal(audioSession.type, 'auto');
   await mic.connect('broken');
   assert.equal(mic.getSnapshot().isConnected, true);
   assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
@@ -334,7 +346,7 @@ test('audio session is declared where supported and ignored elsewhere; play resu
   const session = { type: 'auto' };
   replace('navigator', { audioSession: session });
   setAudioSession('playback'); assert.equal(session.type, 'playback');
-  setAudioSession('play-and-record'); assert.equal(session.type, 'play-and-record');
+  setAudioSession('auto'); assert.equal(session.type, 'auto');
   replace('navigator', {});
   assert.doesNotThrow(() => setAudioSession('playback'));
   let resumed = 0;

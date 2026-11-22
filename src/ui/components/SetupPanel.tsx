@@ -11,6 +11,7 @@ import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { TONE_TYPES } from '../../audio/playbackEngine.types';
 import type { PlaybackDirection, PlaybackMode } from '../../audio/playbackEngine.types';
 import InputSetup from './InputSetup';
+import AudioDebug from './AudioDebug';
 import { TARGET_NAMES } from '../labels';
 import { Button, IconButton, SectionHeading, Segmented, Select } from '../primitives';
 
@@ -38,6 +39,7 @@ function signature(chords: ChordDefinition[]): string {
 const PRESET_OPTIONS = EXERCISE_KINDS.map((kind) => ({ value: kind, label: PRESET_NAMES[kind] }));
 const KEY_OPTIONS = PITCH_CLASSES.map((pc) => ({ value: pc, label: PC_TO_NOTE_NAME[pc] }));
 const TARGET_OPTIONS = (Object.keys(TARGET_NAMES) as PracticeTarget[]).map((value) => ({ value, label: TARGET_NAMES[value] }));
+const SHOW_DEBUG = new URLSearchParams(window.location.search).has('debug');
 const BAR_OPTIONS = ([1, 2, 3, 4] as const).map((n) => ({ value: n, label: String(n) }));
 const MODE_OPTIONS: { value: PlaybackMode; label: string }[] = [
   { value: 'sequential', label: 'In order' },
@@ -189,6 +191,7 @@ export default function SetupPanel() {
           </section>
 
           <InputSetup />
+          {SHOW_DEBUG && <AudioDebug />}
 
           <section className="space-y-2">
             <SectionHeading>Chord sound</SectionHeading>

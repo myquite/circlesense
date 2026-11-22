@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useConductor } from '../../audio/useConductor';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useJudge } from '../../engine/useJudge';
@@ -21,7 +21,7 @@ const tile = 'flex items-center justify-center font-bold size-[min(3.5rem,15vw)]
  * Two sections so the shell can put the chord on top and the transport in thumb reach on phones.
  */
 export default function PlayBar() {
-  const { transport, config, play, pause, stop, setBpm } = useConductor();
+  const { transport, config, play, pause, stop, setBpm, conductor } = useConductor();
   const { progression, currentChord, nextChord, playbackMode } = usePlaybackEngine();
   const { lastDetectedName, lastDetectedNote, isTargetHit, isActive, target } = useJudge();
   const midiNote = useMidiInput().lastNote;
@@ -38,6 +38,14 @@ export default function PlayBar() {
 
   useTransportShortcuts({ canToggle: !isEmpty, onToggle: isRunning ? pause : play, onStop: stop });
   useWakeLock(isRunning);
+
+  // Any tap is a chance to wake audio the browser parked (iOS does this when the
+  // microphone opens or another app takes the speaker).
+  useEffect(() => {
+    const wake = () => conductor.ensureRunning();
+    window.addEventListener('pointerdown', wake);
+    return () => window.removeEventListener('pointerdown', wake);
+  }, [conductor]);
 
   const chordTones = useMemo(() => {
     if (!currentChord) return [];

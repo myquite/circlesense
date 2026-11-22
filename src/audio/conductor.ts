@@ -47,6 +47,11 @@ export class Conductor {
   constructor() {
     this.ctx = new AudioContext();
     setAudioSession('playback');
+    // Opening or closing the microphone can interrupt output on iOS. If that happens
+    // mid-take, pick the audio back up rather than leaving the transport running silently.
+    this.ctx.addEventListener?.('statechange', () => {
+      if (this.transport === 'playing' || this.transport === 'counting') this.ensureRunning();
+    });
     this.currentSnapshot = this.buildSnapshot();
   }
 
@@ -54,15 +59,21 @@ export class Conductor {
     return this.ctx;
   }
 
+  /**
+   * Wake the audio output if the browser has parked it. Not just 'suspended': iOS reports
+   * 'interrupted' after a call, Siri, another app, or an audio-route change.
+   * Safe to call from any user gesture.
+   */
+  ensureRunning(): void {
+    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
+  }
+
   // --- Transport controls ---
 
   play(): void {
     if (this.transport === 'playing' || this.transport === 'counting') return;
 
-    // Not just 'suspended': iOS reports 'interrupted' after a call, Siri or a trip to another app.
-    if (this.ctx.state !== 'running') {
-      void this.ctx.resume();
-    }
+    this.ensureRunning();
 
     const wasStoppedOrFirst = this.transport === 'stopped';
 

@@ -39,6 +39,7 @@ export class MicInput {
   private gate = new NoteGate();
   private connectionVersion = 0;
   private noteCallback: (pitchClass: PitchClass) => void;
+  private sharedContext?: () => AudioContext;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -49,8 +50,13 @@ export class MicInput {
   private snapshotListeners = new Set<() => void>();
   private currentSnapshot: MicInputSnapshot = { ...EMPTY_SNAPSHOT };
 
-  constructor(noteCallback: (pitchClass: PitchClass) => void) {
+  /**
+   * `sharedContext` lets the microphone analyse on the app's existing AudioContext.
+   * iOS output is unreliable when a second context is opened alongside capture.
+   */
+  constructor(noteCallback: (pitchClass: PitchClass) => void, sharedContext?: () => AudioContext) {
     this.noteCallback = noteCallback;
+    this.sharedContext = sharedContext;
   }
 
   async requestAccess(): Promise<void> {
@@ -64,6 +70,9 @@ export class MicInput {
       return;
     }
 
+    // Still inside the tap that asked for the microphone, so the browser will allow it.
+    this.wake(this.sharedContext?.());
+
     await this.connect();
   }
 
@@ -75,7 +84,7 @@ export class MicInput {
     this.notify();
     try {
       // Before asking for the microphone: Safari refuses capture while the session is playback-only.
-      setAudioSession('play-and-record');
+      setAudioSession('auto');
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
           echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -85,9 +94,9 @@ export class MicInput {
         return;
       }
       this.stream = stream;
-      this.audioContext = new AudioContext();
-      await this.audioContext.resume();
-      if (version !== this.connectionVersion) return;
+      this.audioContext = this.sharedContext?.() ?? new AudioContext();
+      // Not awaited: on iOS a resume can stay pending while the route settles.
+      this.wake(this.audioContext);
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = BUFFER_SIZE;
       this.sourceNode = this.audioContext.createMediaStreamSource(stream);
@@ -196,9 +205,9 @@ export class MicInput {
     }
     this.analyser = null;
 
-    // Close audio context
+    // Close the context only if it is ours; a shared one belongs to playback.
     if (this.audioContext) {
-      this.audioContext.close();
+      if (!this.sharedContext) void this.audioContext.close();
       this.audioContext = null;
     }
 
@@ -210,6 +219,10 @@ export class MicInput {
       this.stream = null;
     }
     setAudioSession('playback');
+  }
+
+  private wake(context: AudioContext | undefined): void {
+    if (context && context.state !== 'running') void context.resume().catch(() => {});
   }
 
   private async updateAvailableDevices(): Promise<void> {
