@@ -1,24 +1,30 @@
 import { NoteGate } from './noteGate';
 import type { PitchClass } from '../engine/chordData.types';
 import type { MicDeviceInfo, MicInputSnapshot } from './micInput.types';
-import { setAudioSession } from '../audio/audioSession';
+import type { AudioHost } from '../audio/audioHost';
+import { deviceOf, type Connection } from './connection';
 import { yinDetect, frequencyToPitchClass, computeRMS } from './pitchDetector';
 
 const BUFFER_SIZE = 2048;
 const CONFIDENCE_THRESHOLD = 0.9;
 const SILENCE_THRESHOLD = 0.01; // RMS energy below this is considered silence
 
-const EMPTY_SNAPSHOT: MicInputSnapshot = {
-  isSupported:
-    typeof navigator !== 'undefined' &&
+const UNSUPPORTED = 'Microphone access requires a supported browser and HTTPS or localhost.';
+
+function micSupported(): boolean {
+  return typeof navigator !== 'undefined' &&
     typeof navigator.mediaDevices !== 'undefined' &&
-    'getUserMedia' in navigator.mediaDevices,
-  error: null,
-  isConnected: false,
-  activeDevice: null,
-  availableDevices: [],
-  lastNote: null,
-};
+    'getUserMedia' in navigator.mediaDevices;
+}
+
+/** Support is checked when an input is created, not when this file loads. */
+function emptySnapshot(): MicInputSnapshot {
+  return {
+    connection: micSupported() ? { status: 'idle' } : { status: 'unsupported', message: UNSUPPORTED },
+    availableDevices: [],
+    lastNote: null,
+  };
+}
 
 /** Say what went wrong in terms the player can act on. */
 function describeFailure(cause: unknown): string {
@@ -39,8 +45,8 @@ export class MicInput {
   private gate = new NoteGate();
   private connectionVersion = 0;
   private noteCallback: (pitchClass: PitchClass) => void;
-  private sharedContext?: () => AudioContext;
-  private audioContext: AudioContext | null = null;
+  private audio: AudioHost;
+  private releaseCapture: (() => void) | null = null;
   private analyser: AnalyserNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private stream: MediaStream | null = null;
@@ -48,43 +54,34 @@ export class MicInput {
   private buffer = new Float32Array(BUFFER_SIZE);
 
   private snapshotListeners = new Set<() => void>();
-  private currentSnapshot: MicInputSnapshot = { ...EMPTY_SNAPSHOT };
+  private currentSnapshot: MicInputSnapshot = emptySnapshot();
 
-  /**
-   * `sharedContext` lets the microphone analyse on the app's existing AudioContext.
-   * iOS output is unreliable when a second context is opened alongside capture.
-   */
-  constructor(noteCallback: (pitchClass: PitchClass) => void, sharedContext?: () => AudioContext) {
+  /** `audio` owns the AudioContext and the capture session; the microphone only borrows them. */
+  constructor(noteCallback: (pitchClass: PitchClass) => void, audio: AudioHost) {
     this.noteCallback = noteCallback;
-    this.sharedContext = sharedContext;
+    this.audio = audio;
   }
 
   async requestAccess(): Promise<void> {
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices ||
-      !('getUserMedia' in navigator.mediaDevices)
-    ) {
-      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false, error: 'Microphone access requires a supported browser and HTTPS or localhost.' };
-      this.notify();
+    if (!micSupported()) {
+      this.setConnection({ status: 'unsupported', message: UNSUPPORTED });
       return;
     }
 
     // Still inside the tap that asked for the microphone, so the browser will allow it.
-    this.wake(this.sharedContext?.());
+    this.audio.wake();
 
     await this.connect();
   }
 
   async connect(deviceId?: string): Promise<void> {
-    const previousId = this.currentSnapshot.activeDevice?.id;
+    const previousId = deviceOf(this.currentSnapshot.connection)?.id;
     this.disconnectInternal();
     const version = this.connectionVersion;
-    this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, lastNote: null, activeDevice: null, error: null };
-    this.notify();
+    this.setConnection({ status: 'requesting' });
     try {
       // Before asking for the microphone: Safari refuses capture while the session is playback-only.
-      setAudioSession('auto');
+      this.releaseCapture = this.audio.beginCapture();
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
           echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -94,25 +91,23 @@ export class MicInput {
         return;
       }
       this.stream = stream;
-      this.audioContext = this.sharedContext?.() ?? new AudioContext();
-      // Not awaited: on iOS a resume can stay pending while the route settles.
-      this.wake(this.audioContext);
-      this.analyser = this.audioContext.createAnalyser();
+      // Opening the microphone can park the output on iOS.
+      this.audio.wake();
+      this.analyser = this.audio.context.createAnalyser();
       this.analyser.fftSize = BUFFER_SIZE;
-      this.sourceNode = this.audioContext.createMediaStreamSource(stream);
+      this.sourceNode = this.audio.context.createMediaStreamSource(stream);
       this.sourceNode.connect(this.analyser);
       const track = stream.getAudioTracks()[0];
       track.addEventListener('ended', () => {
         if (version !== this.connectionVersion) return;
-        this.disconnect();
-        this.currentSnapshot = { ...this.currentSnapshot, error: 'The microphone was disconnected. Reconnect it and connect again.' };
-        this.notify();
+        this.disconnectInternal();
+        this.setConnection({ status: 'failed', message: 'The microphone was disconnected. Reconnect it and connect again.' });
       });
-      this.currentSnapshot = {
-        ...this.currentSnapshot, isConnected: true, error: null,
-        activeDevice: { id: track.getSettings().deviceId ?? deviceId ?? 'default', name: track.label || 'Microphone' },
-      };
-      this.notify();
+      this.setConnection({
+        status: 'connected',
+        device: { id: track.getSettings().deviceId ?? deviceId ?? 'default', name: track.label || 'Microphone' },
+        notice: null,
+      });
       this.detectionLoop();
       await this.updateAvailableDevices();
     } catch (cause) {
@@ -121,25 +116,27 @@ export class MicInput {
       // A failed switch should not cost the player the microphone that was working.
       if (deviceId && previousId && previousId !== deviceId) {
         await this.connect(previousId);
-        if (this.currentSnapshot.isConnected) {
-          this.currentSnapshot = { ...this.currentSnapshot,
-            error: 'Could not switch to that microphone. Still using the previous one.' };
-          this.notify();
+        const restored = this.currentSnapshot.connection;
+        if (restored.status === 'connected') {
+          this.setConnection({ ...restored, notice: 'Could not switch to that microphone. Still using the previous one.' });
           return;
         }
       }
-      this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, activeDevice: null, error: describeFailure(cause) };
-      this.notify();
+      this.setConnection({ status: 'failed', message: describeFailure(cause) });
     }
   }
 
   disconnect(): void {
     this.disconnectInternal();
+    this.setConnection({ status: 'idle' });
+  }
+
+  /** The only place the connection state changes. No note can be showing unless connected. */
+  private setConnection(connection: Connection<MicDeviceInfo>): void {
     this.currentSnapshot = {
       ...this.currentSnapshot,
-      isConnected: false,
-      activeDevice: null,
-      lastNote: null,
+      connection,
+      lastNote: connection.status === 'connected' ? this.currentSnapshot.lastNote : null,
     };
     this.notify();
   }
@@ -171,7 +168,7 @@ export class MicInput {
 
     const rms = computeRMS(this.buffer);
     const result = rms > SILENCE_THRESHOLD
-      ? yinDetect(this.buffer, this.audioContext!.sampleRate) : null;
+      ? yinDetect(this.buffer, this.audio.context.sampleRate) : null;
     const valid = result && result.confidence >= CONFIDENCE_THRESHOLD;
     const pitchClass = valid ? frequencyToPitchClass(result.frequency) : null;
     // Publish only when the displayed note changes, not on every animation frame.
@@ -205,11 +202,6 @@ export class MicInput {
     }
     this.analyser = null;
 
-    // Close the context only if it is ours; a shared one belongs to playback.
-    if (this.audioContext) {
-      if (!this.sharedContext) void this.audioContext.close();
-      this.audioContext = null;
-    }
 
     // Stop media stream tracks
     if (this.stream) {
@@ -218,11 +210,8 @@ export class MicInput {
       }
       this.stream = null;
     }
-    setAudioSession('playback');
-  }
-
-  private wake(context: AudioContext | undefined): void {
-    if (context && context.state !== 'running') void context.resume().catch(() => {});
+    this.releaseCapture?.();
+    this.releaseCapture = null;
   }
 
   private async updateAvailableDevices(): Promise<void> {

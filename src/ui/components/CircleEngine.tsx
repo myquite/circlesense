@@ -1,4 +1,5 @@
 import { useConductor } from '../../audio/useConductor';
+import { isCounting as isTransportCounting } from '../../audio/conductor.types';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { CIRCLE_MAJOR, CIRCLE_MINOR, formatChordLabel, matchesCircleEntry, toggleCircleChord } from '../../engine/chordData';
 import { useProgressionEdits } from '../useProgressionEdits';
@@ -18,7 +19,7 @@ export default function CircleEngine() {
   const { currentChord, progression, chordIndex } = usePlaybackEngine();
   const { undo, replaceProgression, applyUndo } = useProgressionEdits();
   const isPlaying = transport === 'playing';
-  const isCounting = transport === 'counting';
+  const isCounting = isTransportCounting(transport);
 
   const activeRoot = isPlaying ? currentChord?.root : null;
   const activeQuality = isPlaying ? currentChord?.quality : null;

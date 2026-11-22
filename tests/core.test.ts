@@ -1,6 +1,7 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { Conductor } from '../src/audio/conductor';
+import { TRANSPORT_TRANSITIONS, canTransition, takePhase, type TransportState } from '../src/audio/conductor.types';
 import { PlaybackEngine } from '../src/audio/playbackEngine';
 import { Judge } from '../src/engine/judge';
 import { buildExercise, matchExercise, EXERCISE_KINDS, toggleCircleChord, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
@@ -8,7 +9,8 @@ import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
 import { MicInput } from '../src/input/micInput';
-import { setAudioSession } from '../src/audio/audioSession';
+import { deviceOf, failureOf } from '../src/input/connection';
+import { AudioHost } from '../src/audio/audioHost';
 import { loadSettings, startingProgression } from '../src/state/sessionStore';
 import { transportShortcut } from '../src/ui/useTransportShortcuts';
 
@@ -115,7 +117,7 @@ test('pause resumes the same chord and retains results; stop preserves results; 
   conductor.pause(); advance(5000);
   conductor.play(); advance(5100);
   // Resume counts in first: nothing is scored and the take is intact.
-  assert.equal(conductor.getSnapshot().transport, 'counting');
+  assert.equal(conductor.getSnapshot().transport, 'counting-back');
   judge.submitNote(11);
   assert.equal(judge.getSnapshot().sessionTotal, 1);
   advance(7100);
@@ -197,6 +199,7 @@ test('MIDI counts all pitch classes accurately and ignores note-off messages', a
   const notes: number[] = [];
   const midi = new MidiInput((pc) => notes.push(pc));
   await midi.requestAccess();
+  assert.equal(midi.getSnapshot().connection.status, 'connected');
   for (let note = 0; note < 128; note++) {
     for (const [status, velocity] of [[0x90, 100], [0x90, 0], [0x80, 100]]) {
       const e = new Event('midimessage'); Object.assign(e, { data: [status, note, velocity] }); device.dispatchEvent(e);
@@ -204,6 +207,13 @@ test('MIDI counts all pitch classes accurately and ignores note-off messages', a
   }
   assert.deepEqual(notes, Array.from({ length: 128 }, (_, i) => i % 12));
   assert.equal(midi.getSnapshot().lastNote, null);
+  // Unplugging the keyboard is a failure with a message; having no keyboard at all is too.
+  Object.assign(device, { state: 'disconnected' });
+  access.dispatchEvent(new Event('statechange'));
+  assert.match(failureOf(midi.getSnapshot().connection) ?? '', /was disconnected/);
+  (access as unknown as { inputs: Map<string, unknown> }).inputs.clear();
+  await midi.requestAccess();
+  assert.match(failureOf(midi.getSnapshot().connection) ?? '', /No MIDI inputs found/);
   midi.dispose();
 });
 
@@ -224,7 +234,7 @@ test('flat chord spellings preserve harmonic intervals', () => {
 test('count-in stays visible through all four clicks and silence never affects the score', (t) => {
   const { conductor, judge, advance } = harness(t);
   conductor.play(); advance(1600);
-  assert.equal(conductor.getSnapshot().transport, 'counting');
+  assert.equal(conductor.getSnapshot().transport, 'counting-in');
   assert.equal(conductor.getSnapshot().countInBeat, 4);
   advance(2100);
   assert.equal(conductor.getSnapshot().transport, 'playing');
@@ -305,54 +315,59 @@ test('a failed microphone switch falls back to the working device', async (t) =>
     enumerateDevices: async () => [{ kind: 'audioinput', deviceId: 'a', label: 'Mic a' }, { kind: 'audioinput', deviceId: 'broken', label: 'Mic broken' }],
   } });
   replace('AudioContext', class {
-    sampleRate = 48000;
+    sampleRate = 48000; state = 'running';
     resume() { return Promise.resolve(); } close() { return Promise.resolve(); }
     createAnalyser() { return { fftSize: 0, getFloatTimeDomainData() {} }; }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
   });
   replace('requestAnimationFrame', () => 1); replace('cancelAnimationFrame', () => {});
-  const mic = new MicInput(() => {});
+  const mic = new MicInput(() => {}, new AudioHost());
+  const statuses: string[] = [];
+  mic.subscribe(() => { const { status } = mic.getSnapshot().connection; if (statuses.at(-1) !== status) statuses.push(status); });
+  assert.equal(mic.getSnapshot().connection.status, 'idle');
   await mic.requestAccess();
-  assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
+  assert.deepEqual(statuses, ['requesting', 'connected']);
+  assert.equal(deviceOf(mic.getSnapshot().connection)?.id, 'a');
 
-  // With a shared context the microphone wakes it but never closes it: playback owns it.
-  let resumed = 0; let closed = 0;
-  const shared = { state: 'interrupted', sampleRate: 48000, resume: () => { resumed++; return Promise.resolve(); }, close: () => { closed++; return Promise.resolve(); },
-    createAnalyser: () => ({ fftSize: 0, getFloatTimeDomainData() {} }), createMediaStreamSource: () => ({ connect() {}, disconnect() {} }) };
-  const sharedMic = new MicInput(() => {}, () => shared as unknown as AudioContext);
-  await sharedMic.requestAccess();
-  assert.equal(sharedMic.getSnapshot().isConnected, true);
-  assert.ok(resumed >= 1);
-  sharedMic.dispose();
-  assert.equal(closed, 0);
-  audioSession.type = 'auto'; // the first microphone is still open
   assert.equal(audioSession.type, 'auto');
   await mic.connect('broken');
-  assert.equal(mic.getSnapshot().isConnected, true);
-  assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
-  assert.match(mic.getSnapshot().error ?? '', /Still using the previous one/);
+  // The fallback is a connected state with a notice, not a failure.
+  const restored = mic.getSnapshot().connection;
+  assert.equal(restored.status, 'connected');
+  assert.equal(deviceOf(restored)?.id, 'a');
+  assert.match(restored.status === 'connected' ? restored.notice ?? '' : '', /Still using the previous one/);
+  assert.equal(failureOf(restored), null);
   mic.disconnect();
   await mic.connect('broken'); // nothing to fall back to
-  assert.equal(mic.getSnapshot().isConnected, false);
-  assert.match(mic.getSnapshot().error ?? '', /access failed/);
+  assert.equal(mic.getSnapshot().connection.status, 'failed');
+  assert.match(failureOf(mic.getSnapshot().connection) ?? '', /access failed/);
   assert.equal(audioSession.type, 'playback'); // handed back to playback once the mic is closed
   await mic.connect('denied');
-  assert.match(mic.getSnapshot().error ?? '', /permission was blocked/);
+  assert.match(failureOf(mic.getSnapshot().connection) ?? '', /permission was blocked/);
+  mic.disconnect();
+  assert.equal(mic.getSnapshot().connection.status, 'idle');
   mic.dispose();
 });
 
-test('audio session is declared where supported and ignored elsewhere; play resumes an interrupted context', (t) => {
+test('the audio host owns the session and keeps wanted output awake', (t) => {
   const { conductor, replace } = harness(t);
   const session = { type: 'auto' };
   replace('navigator', { audioSession: session });
-  setAudioSession('playback'); assert.equal(session.type, 'playback');
-  setAudioSession('auto'); assert.equal(session.type, 'auto');
+  const host = new AudioHost();
+  assert.equal(session.type, 'playback');
+  // The session is 'auto' exactly while at least one capture is open.
+  const first = host.beginCapture(); const second = host.beginCapture();
+  assert.equal(session.type, 'auto');
+  first(); first(); assert.equal(session.type, 'auto'); // releasing twice counts once
+  second(); assert.equal(session.type, 'playback');
   replace('navigator', {});
-  assert.doesNotThrow(() => setAudioSession('playback'));
+  assert.doesNotThrow(() => new AudioHost().beginCapture()());
+
+  // The conductor asks for output while the transport runs; the host resumes a parked context.
   let resumed = 0;
   Object.assign(conductor.audioContext, { state: 'interrupted', resume: () => { resumed++; return Promise.resolve(); } });
   conductor.play();
-  assert.equal(resumed, 1);
+  assert.ok(resumed >= 1);
 });
 
 test('a first visit opens with a ii-V-I in C; a saved progression, even an empty one, is respected', (t) => {
@@ -398,4 +413,29 @@ test('blues presets spell the expected changes and every preset is recognised in
       assert.deepEqual(matchExercise(buildExercise(tonic as 0, kind)), { tonic, kind });
     }
   }
+});
+
+test('the transport only makes legal moves, and each state maps to one take phase', (t) => {
+  const { conductor, playback, judge, advance } = harness(t);
+  const seen: TransportState[] = [];
+  conductor.on('transport', (e) => seen.push(e.state));
+  conductor.pause(); conductor.stop();          // ignored while stopped
+  conductor.play(); conductor.play();           // second play is ignored
+  advance(2100); conductor.pause(); conductor.pause();
+  conductor.play(); advance(2200); conductor.pause(); // pause during the count back in
+  conductor.play(); advance(4400);
+  conductor.stop(); conductor.play(); conductor.stop(); // stop during a fresh count-in
+  assert.deepEqual(seen, ['counting-in', 'playing', 'paused', 'counting-back', 'paused', 'counting-back', 'playing', 'stopped', 'counting-in', 'stopped']);
+  seen.reduce((from, to) => { assert.ok(canTransition(from, to), `${from} -> ${to}`); return to; }, 'stopped' as TransportState);
+  // Every state is reachable and no state is a dead end.
+  const states = Object.keys(TRANSPORT_TRANSITIONS) as TransportState[];
+  for (const state of states) {
+    assert.ok(TRANSPORT_TRANSITIONS[state].length > 0);
+    assert.ok(states.some((from) => canTransition(from, state)));
+  }
+  assert.deepEqual(states.map((state) => [state, takePhase(state)]), [
+    ['stopped', 'over'], ['counting-in', 'new'], ['playing', 'live'], ['paused', 'held'], ['counting-back', 'held'],
+  ]);
+  assert.equal(playback.getSnapshot().isActive, false);
+  assert.equal(judge.getSnapshot().isActive, false);
 });

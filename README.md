@@ -44,10 +44,11 @@ Vite serves `/circlesense/`. If an existing installation lacks a platform-specif
 
 ## Architecture
 
-- `src/audio/conductor.ts`: authoritative Web Audio clock and lookahead scheduling.
+- `src/audio/conductor.ts`: authoritative Web Audio clock and lookahead scheduling. The transport is an explicit state machine (`stopped`, `counting-in`, `playing`, `paused`, `counting-back`) with its legal moves and their meaning for a take defined in `conductor.types.ts`.
+- `src/audio/audioHost.ts`: owns the single AudioContext, the Safari audio session and waking parked audio.
 - `src/audio/playbackEngine.ts`: scheduled chord synthesis and an audible-time chord timeline. Display snapshots update when the audio boundary arrives.
 - `src/engine/judge.ts`: scores observations against the audible chord and selected target; retains stopped/paused session results.
-- `src/input/`: isolated MIDI, monophonic pitch detection and stable-note gating.
+- `src/input/`: isolated MIDI, monophonic pitch detection and stable-note gating. Each input reports one connection state (`unsupported`, `idle`, `requesting`, `connected`, `failed`) defined in `connection.ts`.
 - `src/state/`: validated local settings persistence.
 - `src/ui/components/`: setup panel, play bar, circle, results and device setup. `src/ui/primitives.tsx` holds the shared button, segmented control, select and heading; `src/index.css` holds the colour and type tokens.
 

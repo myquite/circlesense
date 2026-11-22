@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useConductor } from '../../audio/useConductor';
+import { isCounting as isTransportCounting, type TransportState } from '../../audio/conductor.types';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useJudge } from '../../engine/useJudge';
 import { buildVoicing, chordToneNames, formatChordLabel, spellPitchClass } from '../../engine/chordData';
@@ -11,6 +12,13 @@ import { IconButton } from '../primitives';
 
 const microLabel = 'text-label font-bold uppercase tracking-widest text-ink-muted';
 const DEGREES = ['R', '3rd', '5th', '7th'];
+const TRANSPORT_LABELS: Record<TransportState, string> = {
+  stopped: 'Stopped',
+  'counting-in': 'Count-in',
+  playing: 'Playing',
+  paused: 'Paused',
+  'counting-back': 'Count-in',
+};
 const MIN_BPM = 40;
 const MAX_BPM = 240;
 // Tone tiles and the Heard badge: large on phones (shrinking on very narrow ones), compact on desktop.
@@ -28,13 +36,15 @@ export default function PlayBar() {
   const micNote = useMicInput().lastNote;
 
   const isPlaying = transport === 'playing';
-  const isCounting = transport === 'counting';
+  const isCounting = isTransportCounting(transport);
   const isRunning = isPlaying || isCounting;
   const isPaused = transport === 'paused';
   const isEmpty = progression.length === 0;
-  const playLabel = isEmpty
+  // One decision for what the main button does; the label, tooltip and icon all follow it.
+  const action = isEmpty ? null : isRunning ? 'Pause' : isPaused ? 'Resume' : 'Start';
+  const playLabel = action === null
     ? 'Add a chord or load a preset to start'
-    : isRunning ? 'Pause' : isPaused ? 'Resume current chord' : 'Start practice';
+    : action === 'Resume' ? 'Resume current chord' : action === 'Start' ? 'Start practice' : action;
 
   useTransportShortcuts({ canToggle: !isEmpty, onToggle: isRunning ? pause : play, onStop: stop });
   useWakeLock(isRunning);
@@ -42,7 +52,7 @@ export default function PlayBar() {
   // Any tap is a chance to wake audio the browser parked (iOS does this when the
   // microphone opens or another app takes the speaker).
   useEffect(() => {
-    const wake = () => conductor.ensureRunning();
+    const wake = () => conductor.audio.wake();
     window.addEventListener('pointerdown', wake);
     return () => window.removeEventListener('pointerdown', wake);
   }, [conductor]);
@@ -109,7 +119,7 @@ export default function PlayBar() {
             {isCounting && <span className="size-2 rounded-full bg-yellow-400 animate-pulse" />}
             {isPlaying && <span className="size-2 rounded-full bg-ink animate-pulse" />}
             {isPaused && <span className="size-2 rounded-full bg-yellow-400" />}
-            {isEmpty ? 'No chords yet' : transport}
+            {isEmpty ? 'No chords yet' : TRANSPORT_LABELS[transport]}
           </span>
         </div>
         <div className="flex items-end gap-3">
@@ -156,7 +166,7 @@ export default function PlayBar() {
             onClick={isRunning ? pause : play}
           >
             <span className="material-symbols-outlined text-lg" aria-hidden="true">{isRunning ? 'pause' : 'play_arrow'}</span>
-            <span className="lg:hidden">{isEmpty ? 'Add chords to start' : isRunning ? 'Pause' : isPaused ? 'Resume' : 'Start'}</span>
+            <span className="lg:hidden">{action ?? 'Add chords to start'}</span>
           </button>
           <IconButton icon="stop" label="Stop and keep results" title="Stop and keep results (Esc)" className="max-lg:size-12" onClick={stop} />
         </div>

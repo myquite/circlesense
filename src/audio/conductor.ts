@@ -4,9 +4,9 @@ import type {
   ConductorPosition,
   ConductorSnapshot,
   ConductorEvent,
-  TransportEvent,
 } from './conductor.types';
-import { setAudioSession } from './audioSession';
+import { canTransition, isCounting, isRunning } from './conductor.types';
+import { AudioHost } from './audioHost';
 
 type EventType = ConductorEvent['type'];
 type EventOfType<T extends EventType> = Extract<ConductorEvent, { type: T }>;
@@ -24,8 +24,12 @@ const DEFAULT_CONFIG: ConductorConfig = {
 };
 
 export class Conductor {
+  readonly audio: AudioHost;
   private ctx: AudioContext;
-  private transport: TransportState = 'stopped';
+  /** What the scheduler is doing. Runs slightly ahead of the sound. */
+  private state: TransportState = 'stopped';
+  /** What the listener is hearing. This is the state the UI shows. */
+  private audible: TransportState = 'stopped';
   private config: ConductorConfig = { ...DEFAULT_CONFIG };
   /** Scheduler position — may be ahead of what's audible */
   private position: ConductorPosition = { bar: 0, beat: 0, totalBars: 0 };
@@ -44,14 +48,10 @@ export class Conductor {
   private snapshotListeners = new Set<() => void>();
   private currentSnapshot: ConductorSnapshot;
 
-  constructor() {
-    this.ctx = new AudioContext();
-    setAudioSession('playback');
-    // Opening or closing the microphone can interrupt output on iOS. If that happens
-    // mid-take, pick the audio back up rather than leaving the transport running silently.
-    this.ctx.addEventListener?.('statechange', () => {
-      if (this.transport === 'playing' || this.transport === 'counting') this.ensureRunning();
-    });
+  /** `audio` owns the AudioContext; the conductor only tells it when output is wanted. */
+  constructor(audio: AudioHost = new AudioHost()) {
+    this.audio = audio;
+    this.ctx = audio.context;
     this.currentSnapshot = this.buildSnapshot();
   }
 
@@ -59,82 +59,79 @@ export class Conductor {
     return this.ctx;
   }
 
-  /**
-   * Wake the audio output if the browser has parked it. Not just 'suspended': iOS reports
-   * 'interrupted' after a call, Siri, another app, or an audio-route change.
-   * Safe to call from any user gesture.
-   */
-  ensureRunning(): void {
-    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
-  }
-
   // --- Transport controls ---
 
   play(): void {
-    if (this.transport === 'playing' || this.transport === 'counting') return;
+    // Called from a tap or key press, which is when browsers allow audio to start.
+    this.audio.wake();
 
-    this.ensureRunning();
-
-    const wasStoppedOrFirst = this.transport === 'stopped';
-
-    if (wasStoppedOrFirst) {
+    if (this.state === 'stopped') {
+      // A new take: start from the top.
       this.barTimeline = [];
       this.barSerial = 0;
-      // Start count-in
-      this.transport = 'counting';
-      this.emitTransport();
-      this.countInRemaining = COUNT_IN_BEATS;
-      this.displayCountIn = 0;
       this.position = { bar: 0, beat: 0, totalBars: 0 };
       this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
-      this.nextBeatTime = this.ctx.currentTime + 0.05;
-      this.startScheduler();
-      this.notifySnapshot();
-    } else {
-      // Resume at the start of the current chord, retaining the session.
-      // A count-in gives the player time to get back to the instrument.
+      this.enter('counting-in');
+    } else if (this.state === 'paused') {
+      // Back into the paused take at the start of the current chord. The count gives
+      // the player time to get back to the instrument.
       this.position = { ...this.displayPosition, bar: 0, beat: 0 };
-      this.transport = 'counting';
-      this.emitTransport(true);
-      this.countInRemaining = COUNT_IN_BEATS;
-      this.displayCountIn = 0;
-      this.nextBeatTime = this.ctx.currentTime + 0.05;
-      this.startScheduler();
-      this.notifySnapshot();
+      this.enter('counting-back');
+    } else {
+      return;
     }
+    this.nextBeatTime = this.ctx.currentTime + 0.05;
+    this.startScheduler();
+    this.notifySnapshot();
   }
 
   pause(): void {
-    if (this.transport !== 'playing' && this.transport !== 'counting') return;
-    this.transport = 'paused';
-    this.countInRemaining = 0;
-    this.displayCountIn = 0;
-    this.stopScheduler();
-    this.clearDisplayTimers();
-    this.stopClicks();
-    this.emitTransport();
+    if (!isRunning(this.state)) return;
+    this.haltScheduling();
+    this.enter('paused');
     this.notifySnapshot();
   }
 
   stop(): void {
-    if (this.transport === 'stopped') return;
-    this.transport = 'stopped';
-    this.countInRemaining = 0;
-    this.displayCountIn = 0;
+    if (this.state === 'stopped') return;
+    this.haltScheduling();
+    this.position = { bar: 0, beat: 0, totalBars: 0 };
+    this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
+    this.enter('stopped');
+    this.notifySnapshot();
+  }
+
+  /**
+   * The only place the transport state changes. Count-in bookkeeping is set here so no
+   * transition can forget it.
+   */
+  private enter(next: TransportState): void {
+    if (!canTransition(this.state, next)) {
+      throw new Error(`Invalid transport transition: ${this.state} -> ${next}`);
+    }
+    this.state = next;
+    this.audio.setOutputWanted(isRunning(next));
+    this.countInRemaining = isCounting(next) ? COUNT_IN_BEATS : 0;
+    // 'playing' is entered when its first beat is scheduled, a moment before it is heard;
+    // the audible state follows when that beat sounds. Every other change is immediate.
+    if (next !== 'playing') {
+      this.audible = next;
+      this.displayCountIn = 0;
+    }
+    this.emit('transport', { type: 'transport', state: next, audioTime: this.ctx.currentTime });
+  }
+
+  private haltScheduling(): void {
     this.stopScheduler();
     this.clearDisplayTimers();
     this.stopClicks();
-    this.position = { bar: 0, beat: 0, totalBars: 0 };
-    this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
-    this.emitTransport();
-    this.notifySnapshot();
   }
 
   setBpm(bpm: number): void {
     const clamped = Math.max(30, Math.min(400, bpm));
     if (clamped === this.config.bpm) return;
 
-    if (this.transport === 'playing' || this.transport === 'counting') {
+    if (isRunning(this.state)) {
       const oldSecsPerBeat = 60 / this.config.bpm;
       const newSecsPerBeat = 60 / clamped;
       const elapsed = this.ctx.currentTime - (this.nextBeatTime - oldSecsPerBeat);
@@ -237,7 +234,7 @@ export class Conductor {
     while (this.nextBeatTime < deadline) {
       const audioTime = this.nextBeatTime;
 
-      if (this.transport === 'counting' && this.countInRemaining > 0) {
+      if (isCounting(this.state) && this.countInRemaining > 0) {
         // Count-in phase: tick beats but don't emit bar/cycle events
         this.scheduleClick(audioTime);
         const beatNum = COUNT_IN_BEATS - this.countInRemaining + 1;
@@ -258,10 +255,7 @@ export class Conductor {
         continue;
       }
 
-      if (this.transport === 'counting') {
-        this.transport = 'playing';
-        this.emitTransport();
-      }
+      if (isCounting(this.state)) this.enter('playing');
 
       // Normal playback
       const { beat, bar } = this.position;
@@ -285,6 +279,7 @@ export class Conductor {
       // Schedule display update for when this beat actually sounds
       const displayPos = { ...this.position };
       this.scheduleDisplayUpdate(audioTime, () => {
+        this.audible = 'playing';
         this.displayCountIn = 0;
         this.displayPosition = displayPos;
       });
@@ -334,7 +329,7 @@ export class Conductor {
 
   private buildSnapshot(): ConductorSnapshot {
     return {
-      transport: this.transport === 'playing' && this.displayCountIn > 0 ? 'counting' : this.transport,
+      transport: this.audible,
       config: { ...this.config },
       position: { ...this.displayPosition },
       countInBeat: this.displayCountIn,
@@ -355,15 +350,5 @@ export class Conductor {
         listener(event);
       }
     }
-  }
-
-  private emitTransport(resuming = false): void {
-    const event: TransportEvent = {
-      type: 'transport',
-      state: this.transport,
-      audioTime: this.ctx.currentTime,
-      resuming,
-    };
-    this.emit('transport', event);
   }
 }

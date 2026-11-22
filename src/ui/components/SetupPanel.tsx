@@ -7,6 +7,7 @@ import { PC_TO_NOTE_NAME } from '../../engine/scaleData';
 import { useJudge } from '../../engine/useJudge';
 import type { PracticeTarget } from '../../engine/judge.types';
 import { useConductor } from '../../audio/useConductor';
+import { isRunning as isTransportRunning } from '../../audio/conductor.types';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { TONE_TYPES } from '../../audio/playbackEngine.types';
 import type { PlaybackDirection, PlaybackMode } from '../../audio/playbackEngine.types';
@@ -68,7 +69,7 @@ export default function SetupPanel() {
     if (preset) setProgression(buildExercise(next, preset.kind));
   }
 
-  const isRunning = transport === 'playing' || transport === 'counting';
+  const isRunning = isTransportRunning(transport);
 
   return (
     <aside

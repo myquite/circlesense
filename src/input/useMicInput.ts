@@ -9,7 +9,7 @@ export function getMicInput(): MicInput {
   if (!instance) {
     instance = new MicInput(
       (pitchClass) => getJudge().submitNote(pitchClass),
-      () => getConductor().audioContext,
+      getConductor().audio,
     );
   }
   return instance;

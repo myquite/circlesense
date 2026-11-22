@@ -1,4 +1,5 @@
 import type { PitchClass } from '../engine/chordData.types';
+import type { Connection } from './connection';
 
 export interface MicDeviceInfo {
   id: string;
@@ -6,10 +7,7 @@ export interface MicDeviceInfo {
 }
 
 export interface MicInputSnapshot {
-  isSupported: boolean;
-  error: string | null;
-  isConnected: boolean;
-  activeDevice: MicDeviceInfo | null;
+  connection: Connection<MicDeviceInfo>;
   availableDevices: MicDeviceInfo[];
   lastNote: {
     frequency: number;

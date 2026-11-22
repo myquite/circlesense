@@ -1,4 +1,5 @@
 import type { PitchClass } from '../engine/chordData.types';
+import type { Connection } from './connection';
 
 export interface MidiDeviceInfo {
   id: string;
@@ -7,10 +8,7 @@ export interface MidiDeviceInfo {
 }
 
 export interface MidiInputSnapshot {
-  isSupported: boolean;
-  error: string | null;
-  isConnected: boolean;
-  activeDevice: MidiDeviceInfo | null;
+  connection: Connection<MidiDeviceInfo>;
   availableDevices: MidiDeviceInfo[];
   lastNote: {
     midiNote: number;

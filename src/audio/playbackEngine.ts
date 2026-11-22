@@ -1,5 +1,6 @@
 import type { Conductor } from './conductor';
 import type { BarEvent, TransportEvent } from './conductor.types';
+import { takePhase } from './conductor.types';
 import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection, PlaybackMode, ToneType } from './playbackEngine.types';
 import type { ChordDefinition } from '../engine/chordData.types';
 import { buildVoicing } from '../engine/chordData';
@@ -20,8 +21,11 @@ export class PlaybackEngine {
   private direction: PlaybackDirection = 'clockwise';
   private playbackMode: PlaybackMode = 'sequential';
   private toneType: ToneType = 'piano';
-  private playing = false;
-  private firstChordScheduled = false;
+  /**
+   * idle: silent. armed: live, waiting for the next bar to sound the current chord.
+   * sounding: live and advancing a chord per cycle.
+   */
+  private phase: 'idle' | 'armed' | 'sounding' = 'idle';
 
   private activeVoices: ActiveVoice[] = [];
   private unsubBar: (() => void) | null = null;
@@ -47,48 +51,50 @@ export class PlaybackEngine {
   // --- Event handlers ---
 
   private handleBar(event: BarEvent): void {
-    if (event.bar === 0 && this.progression.length > 0) {
-      if (!this.firstChordScheduled) {
-        this.firstChordScheduled = true;
-        this.scheduleCurrentChord(event.audioTime);
-      } else {
+    if (event.bar !== 0 || this.progression.length === 0) return;
+    switch (this.phase) {
+      case 'idle':
+        return;
+      case 'armed':
+        // First chord of this stretch of playing: sound the chord we are parked on.
+        this.phase = 'sounding';
+        break;
+      case 'sounding':
         this.advancePlayingIndex();
-        this.scheduleCurrentChord(event.audioTime);
-      }
+        break;
     }
+    this.scheduleCurrentChord(event.audioTime);
   }
 
   private handleTransport(event: TransportEvent): void {
-    switch (event.state) {
-      case 'counting':
-        if (event.resuming) break; // keep the paused chord
-        this.playingIndex = 0;
-        this.displayIndex = 0;
-        this.chordTimeline = [];
-        this.firstChordScheduled = false;
+    switch (takePhase(event.state)) {
+      case 'new':
+        this.rewind();
         break;
-      case 'playing':
-        this.playing = true;
-        this.firstChordScheduled = false;
-        this.notifySnapshot();
+      case 'live':
+        this.phase = 'armed';
         break;
-      case 'paused':
+      case 'held':
+        // Stay on the chord that was sounding, so the take picks up from its start.
         this.playingIndex = this.displayIndex;
         this.chordTimeline = [];
-        this.playing = false;
+        this.phase = 'idle';
         this.fadeOutAllVoices();
-        this.notifySnapshot();
         break;
-      case 'stopped':
-        this.chordTimeline = [];
-        this.displayIndex = 0;
-        this.playing = false;
+      case 'over':
+        this.rewind();
         this.killAllVoices();
-        this.playingIndex = 0;
-        this.firstChordScheduled = false;
-        this.notifySnapshot();
         break;
     }
+    this.notifySnapshot();
+  }
+
+  /** Back to the first chord with nothing scheduled. */
+  private rewind(): void {
+    this.playingIndex = 0;
+    this.displayIndex = 0;
+    this.chordTimeline = [];
+    this.phase = 'idle';
   }
 
   private scheduleCurrentChord(audioTime: number): void {
@@ -340,22 +346,19 @@ export class PlaybackEngine {
   // --- Public API ---
 
   getCurrentChord(): ChordDefinition | null {
-    if (!this.playing) return null;
+    if (this.phase === 'idle') return null;
     return this.chordTimeline.filter((entry) => entry.audioTime <= this.ctx.currentTime).at(-1)?.chord ?? null;
   }
 
+  /** Editing ends the take. Stopping rewinds, so edits always apply from the first chord. */
   private prepareEdit(): void {
     this.conductor.stop();
-    this.displayIndex = 0;
-    this.playingIndex = 0;
-    this.firstChordScheduled = false;
+    this.rewind();
   }
 
   setProgression(chords: ChordDefinition[]): void {
     this.prepareEdit();
     this.progression = [...chords];
-    this.playingIndex = 0;
-    this.firstChordScheduled = false;
     this.notifySnapshot();
   }
 
@@ -369,17 +372,12 @@ export class PlaybackEngine {
     this.prepareEdit();
     if (index < 0 || index >= this.progression.length) return;
     this.progression.splice(index, 1);
-    if (this.playingIndex >= this.progression.length) {
-      this.playingIndex = 0;
-    }
     this.notifySnapshot();
   }
 
   clearProgression(): void {
     this.prepareEdit();
     this.progression = [];
-    this.playingIndex = 0;
-    this.firstChordScheduled = false;
     this.notifySnapshot();
   }
 
@@ -433,7 +431,7 @@ export class PlaybackEngine {
       currentChord: len > 0 ? (this.progression[this.displayIndex] ?? null) : null,
       nextChord: len > 0 && this.playbackMode !== 'random' ? (this.progression[this.nextIndex(this.displayIndex)] ?? null) : null,
       chordIndex: this.displayIndex,
-      isActive: this.playing,
+      isActive: this.phase !== 'idle',
       direction: this.direction,
       playbackMode: this.playbackMode,
       toneType: this.toneType,

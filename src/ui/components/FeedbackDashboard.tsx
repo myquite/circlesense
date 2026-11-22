@@ -2,6 +2,7 @@ import { useJudge } from '../../engine/useJudge';
 import { formatChordLabel } from '../../engine/chordData';
 import { useMidiInput } from '../../input/useMidiInput';
 import { useMicInput } from '../../input/useMicInput';
+import { isConnected } from '../../input/connection';
 import { Button, SectionHeading } from '../primitives';
 import { TARGET_NAMES } from '../labels';
 
@@ -19,8 +20,8 @@ export default function FeedbackDashboard() {
     outsideTargetLog,
   } = useJudge();
 
-  const midiConnected = useMidiInput().isConnected;
-  const micConnected = useMicInput().isConnected;
+  const midiConnected = isConnected(useMidiInput().connection);
+  const micConnected = isConnected(useMicInput().connection);
   const inputConnected = midiConnected || micConnected;
 
   const hasNotes = currentBarTotal > 0;

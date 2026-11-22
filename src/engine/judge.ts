@@ -1,6 +1,7 @@
 import type { Conductor } from '../audio/conductor';
 import type { PlaybackEngine } from '../audio/playbackEngine';
-import type { TransportEvent } from '../audio/conductor.types';
+import type { TakePhase, TransportEvent } from '../audio/conductor.types';
+import { takePhase } from '../audio/conductor.types';
 import type { PitchClass } from './chordData.types';
 import type { JudgeSnapshot, OutsideTargetEntry, PracticeTarget, TakeSummary } from './judge.types';
 import { buildVoicing, spellPitchClass } from './chordData';
@@ -42,7 +43,8 @@ export class Judge {
   private lastIsTargetHit = false;
 
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
-  private active = false;
+  /** Notes are scored only while the take is live. */
+  private phase: TakePhase = 'over';
   private target: PracticeTarget = 'chord';
   private previousTake: TakeSummary | null = null;
 
@@ -63,7 +65,7 @@ export class Judge {
   // --- Public API ---
 
   submitNote(pitchClass: PitchClass): void {
-    if (!this.active) return;
+    if (this.phase !== 'live') return;
 
     const chord = this.playbackEngine.getCurrentChord();
     if (!chord) return;
@@ -166,26 +168,13 @@ export class Judge {
   }
 
   private handleTransport(event: TransportEvent): void {
-    switch (event.state) {
-      case 'counting':
-        if (event.resuming) break; // count-in back into a paused take: stay inactive, keep results
-        this.active = false;
-        this.lastBarId = 0;
-        this.resetSession();
-        break;
-      case 'playing':
-        this.active = true;
-        this.notifySnapshot();
-        break;
-      case 'stopped':
-        this.active = false;
-        this.notifySnapshot();
-        break;
-      case 'paused':
-        // Keep current state, just mark inactive
-        this.active = false;
-        this.notifySnapshot();
-        break;
+    this.phase = takePhase(event.state);
+    if (this.phase === 'new') {
+      // The previous take is archived and scoring starts clean.
+      this.lastBarId = 0;
+      this.resetSession();
+    } else {
+      this.notifySnapshot();
     }
   }
 
@@ -235,7 +224,7 @@ export class Judge {
       sessionAccuracy,
       sessionTotal: this.sessionTotal,
       outsideTargetLog: this.buildOutsideTargetLog(),
-      isActive: this.active,
+      isActive: this.phase === 'live',
       previousTake: this.previousTake,
     };
   }
