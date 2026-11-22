@@ -6,6 +6,7 @@ import type {
   ConductorEvent,
   TransportEvent,
 } from './conductor.types';
+import { setAudioSession } from './audioSession';
 
 type EventType = ConductorEvent['type'];
 type EventOfType<T extends EventType> = Extract<ConductorEvent, { type: T }>;
@@ -45,6 +46,7 @@ export class Conductor {
 
   constructor() {
     this.ctx = new AudioContext();
+    setAudioSession('playback');
     this.currentSnapshot = this.buildSnapshot();
   }
 
@@ -57,8 +59,9 @@ export class Conductor {
   play(): void {
     if (this.transport === 'playing' || this.transport === 'counting') return;
 
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+    // Not just 'suspended': iOS reports 'interrupted' after a call, Siri or a trip to another app.
+    if (this.ctx.state !== 'running') {
+      void this.ctx.resume();
     }
 
     const wasStoppedOrFirst = this.transport === 'stopped';

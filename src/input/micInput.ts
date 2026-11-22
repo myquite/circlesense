@@ -1,6 +1,7 @@
 import { NoteGate } from './noteGate';
 import type { PitchClass } from '../engine/chordData.types';
 import type { MicDeviceInfo, MicInputSnapshot } from './micInput.types';
+import { setAudioSession } from '../audio/audioSession';
 import { yinDetect, frequencyToPitchClass, computeRMS } from './pitchDetector';
 
 const BUFFER_SIZE = 2048;
@@ -67,6 +68,7 @@ export class MicInput {
         return;
       }
       this.stream = stream;
+      setAudioSession('play-and-record');
       this.audioContext = new AudioContext();
       await this.audioContext.resume();
       if (version !== this.connectionVersion) return;
@@ -191,6 +193,7 @@ export class MicInput {
         track.stop();
       }
       this.stream = null;
+      setAudioSession('playback');
     }
   }
 
