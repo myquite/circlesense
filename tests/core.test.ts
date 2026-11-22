@@ -8,7 +8,8 @@ import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
 import { MicInput } from '../src/input/micInput';
-import { loadSettings } from '../src/state/sessionStore';
+import { setAudioSession } from '../src/audio/audioSession';
+import { loadSettings, startingProgression } from '../src/state/sessionStore';
 import { transportShortcut } from '../src/ui/useTransportShortcuts';
 
 // A deterministic clock drives the real scheduling, playback, and judging code.
@@ -318,4 +319,29 @@ test('a failed microphone switch falls back to the working device', async (t) =>
   assert.equal(mic.getSnapshot().isConnected, false);
   assert.match(mic.getSnapshot().error ?? '', /access failed/);
   mic.dispose();
+});
+
+test('audio session is declared where supported and ignored elsewhere; play resumes an interrupted context', (t) => {
+  const { conductor, replace } = harness(t);
+  const session = { type: 'auto' };
+  replace('navigator', { audioSession: session });
+  setAudioSession('playback'); assert.equal(session.type, 'playback');
+  setAudioSession('play-and-record'); assert.equal(session.type, 'play-and-record');
+  replace('navigator', {});
+  assert.doesNotThrow(() => setAudioSession('playback'));
+  let resumed = 0;
+  Object.assign(conductor.audioContext, { state: 'interrupted', resume: () => { resumed++; return Promise.resolve(); } });
+  conductor.play();
+  assert.equal(resumed, 1);
+});
+
+test('a first visit opens with a ii-V-I in C; a saved progression, even an empty one, is respected', (t) => {
+  const { replace } = harness(t);
+  replace('localStorage', { getItem: () => null });
+  assert.deepEqual(startingProgression(loadSettings()).map((c) => c.label), ['Dm7', 'G7', 'Cmaj7']);
+  const settings = { bpm: 120, barLength: 1, direction: 'clockwise', progression: [] as unknown[] };
+  replace('localStorage', { getItem: () => JSON.stringify(settings) });
+  assert.deepEqual(startingProgression(loadSettings()), []);
+  settings.progression = [makeChordDefinition('F', 'F', 'major')];
+  assert.deepEqual(startingProgression(loadSettings()).map((c) => c.label), ['F']);
 });

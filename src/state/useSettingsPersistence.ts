@@ -2,7 +2,7 @@ import { getJudge } from '../engine/useJudge';
 import { useEffect, useRef } from 'react';
 import { getConductor } from '../audio/useConductor';
 import { getPlaybackEngine } from '../audio/usePlaybackEngine';
-import { loadSettings, saveSettings, type Settings } from './sessionStore';
+import { loadSettings, saveSettings, startingProgression, type Settings } from './sessionStore';
 
 const DEBOUNCE_MS = 500;
 
@@ -23,10 +23,9 @@ export function useSettingsPersistence(): void {
       playbackEngine.setDirection(saved.direction);
       playbackEngine.setPlaybackMode(saved.playbackMode);
       playbackEngine.setToneType(saved.toneType);
-      if (saved.progression.length > 0) {
-        playbackEngine.setProgression(saved.progression);
-      }
     }
+    const progression = startingProgression(saved);
+    if (progression.length > 0) playbackEngine.setProgression(progression);
 
     // Persist settings on change (debounced)
     function scheduleSave() {

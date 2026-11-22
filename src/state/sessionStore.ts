@@ -1,4 +1,4 @@
-import { NOTE_TO_PC } from '../engine/chordData';
+import { NOTE_TO_PC, buildExercise } from '../engine/chordData';
 import type { PracticeTarget } from '../engine/judge.types';
 import type { ChordDefinition } from '../engine/chordData.types';
 import type { PlaybackDirection, PlaybackMode, ToneType } from '../audio/playbackEngine.types';
@@ -18,6 +18,15 @@ const STORAGE_KEY = 'circlesense:settings';
 const VALID_DIRECTIONS: PlaybackDirection[] = ['clockwise', 'counter'];
 const VALID_MODES: PlaybackMode[] = ['sequential', 'random'];
 const VALID_TONES: ToneType[] = ['triangle', 'piano', 'warm-pad'];
+
+/**
+ * The progression to open with. A first-time visitor gets a ii–V–I in C so Start works
+ * straight away. A returning player gets exactly what they saved, including an empty
+ * progression they cleared on purpose.
+ */
+export function startingProgression(saved: Settings | null): ChordDefinition[] {
+  return saved ? saved.progression : buildExercise(0, 'ii-v-i');
+}
 
 export function saveSettings(settings: Settings): void {
   try {
