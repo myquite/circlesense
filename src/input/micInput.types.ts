@@ -7,6 +7,7 @@ export interface MicDeviceInfo {
 
 export interface MicInputSnapshot {
   isSupported: boolean;
+  error: string | null;
   isConnected: boolean;
   activeDevice: MicDeviceInfo | null;
   availableDevices: MicDeviceInfo[];

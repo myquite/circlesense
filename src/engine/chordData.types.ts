@@ -1,7 +1,7 @@
 /** Pitch class: 0 = C, 1 = C#, ... 11 = B */
 export type PitchClass = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
-export type ChordQuality = 'major' | 'minor';
+export type ChordQuality = 'major' | 'minor' | 'major7' | 'minor7' | 'dominant7';
 
 export type NoteName =
   | 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F'

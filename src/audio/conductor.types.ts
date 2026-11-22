@@ -34,6 +34,8 @@ export interface TransportEvent {
   type: 'transport';
   state: TransportState;
   audioTime: number;
+  /** True when a count-in leads back into a paused session rather than starting a new one. */
+  resuming?: boolean;
 }
 
 export type ConductorEvent = BeatEvent | BarEvent | CycleEvent | TransportEvent;

@@ -6,15 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CircleSense is a deterministic harmonic training tool for intelligent scale practice. It helps musicians practice chord progressions and scales with real-time pitch detection feedback. Built with TypeScript, React, Web Audio API, and Tailwind CSS.
 
-**Status**: Early-stage — AGENT.md and UI mockup exist, but source code implementation has not yet begun.
+**Status**: Implemented browser practice tool with triads/seventh chords, transposable exercises, selectable targets, MIDI/microphone input, local settings and regression tests. See README.md for current behavior and limitations.
 
 ## Build & Development Commands
 
-No build system is configured yet. When set up, this section should be updated with build, test, lint, and dev server commands.
+`npm ci`, `npm run dev`, `npm run lint`, `npm test`, `npm run build`. Use Node 22.13+ (22 LTS). Tests use a deterministic clock and audio substitutes; hardware verification remains necessary.
 
 ## Architecture
 
-### Core Modules (planned in `/src`)
+### Core Modules (in `/src`)
 
 - **`/audio/conductor.ts`** — Authoritative clock for all musical events. All timing derives from here. UI must never drive musical timing.
 - **`/audio/playbackEngine.ts`** — Scheduled Web Audio API calls for chord playback. Must use Web Audio scheduling, never `setInterval` for chord switching.
@@ -42,7 +42,7 @@ Follow this sequence: Conductor → PlaybackEngine → Judge (hardcoded G Major)
 - DO NOT move timing-critical logic into React render cycle
 - DO NOT change core Conductor tempo implementation without testing drift at BPM 60, 120, 240
 - DO NOT reduce pitch detection confidence gating
-- DO NOT implement future extensions (chord-tone scoring, follow changes, gamification, adaptive tempo, modal interchange) unless explicitly instructed
+- The user authorized chord-tone/third/guide-tone practice and seventh-chord progression presets. Do not add gamification, adaptive tempo or modal interchange without explicit instruction.
 
 ## Testing Requirements
 
@@ -150,9 +150,7 @@ Ensure architecture supports:
 * Tritone substitution toggle
 * Chord-scale mapping table
 
-Do not build these yet.
-
-Just don’t block them.
+Per-chord target scoring, guide tones and transposable exercises are now implemented with user authorization. Tritone substitution and chord-scale mapping remain future work.
 
 ---
 

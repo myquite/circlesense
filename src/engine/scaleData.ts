@@ -20,18 +20,18 @@ export function getNaturalMinorScale(root: PitchClass): Set<PitchClass> {
   );
 }
 
-/** Pitch class to note name lookup */
+/** Default display spelling for a pitch class with no chord context (flats, except F♯). */
 export const PC_TO_NOTE_NAME: Record<PitchClass, string> = {
   0: 'C',
-  1: 'C#',
+  1: 'D♭',
   2: 'D',
-  3: 'D#',
+  3: 'E♭',
   4: 'E',
   5: 'F',
-  6: 'F#',
+  6: 'F♯',
   7: 'G',
-  8: 'G#',
+  8: 'A♭',
   9: 'A',
-  10: 'A#',
+  10: 'B♭',
   11: 'B',
 };

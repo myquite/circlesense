@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { Judge } from './judge';
 import { getConductor } from '../audio/useConductor';
 import { getPlaybackEngine } from '../audio/usePlaybackEngine';
+import type { PracticeTarget } from './judge.types';
 import type { PitchClass } from './chordData.types';
 
 let instance: Judge | null = null;
@@ -31,9 +32,15 @@ export function useJudge() {
     [judge],
   );
 
+  const clearResults = useCallback(() => judge.clearResults(), [judge]);
+
+  const setTarget = useCallback((target: PracticeTarget) => judge.setTarget(target), [judge]);
+
   return {
     ...snapshot,
     submitNote,
     resetSession,
+    clearResults,
+    setTarget,
   };
 }

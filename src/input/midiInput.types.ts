@@ -8,6 +8,7 @@ export interface MidiDeviceInfo {
 
 export interface MidiInputSnapshot {
   isSupported: boolean;
+  error: string | null;
   isConnected: boolean;
   activeDevice: MidiDeviceInfo | null;
   availableDevices: MidiDeviceInfo[];

@@ -5,6 +5,7 @@ import type {
   ChordDefinition,
   ChordVoicing,
 } from './chordData.types';
+import { PC_TO_NOTE_NAME } from './scaleData';
 
 export const NOTE_TO_PC: Record<NoteName, PitchClass> = {
   'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
@@ -20,11 +21,17 @@ export const PC_TO_NOTE: Record<PitchClass, NoteName> = {
 const QUALITY_INTERVALS: Record<ChordQuality, number[]> = {
   major: [0, 4, 7],
   minor: [0, 3, 7],
+  major7: [0, 4, 7, 11],
+  minor7: [0, 3, 7, 10],
+  dominant7: [0, 4, 7, 10],
 };
 
 const QUALITY_LABELS: Record<ChordQuality, string> = {
   major: '',
   minor: 'm',
+  major7: 'maj7',
+  minor7: 'm7',
+  dominant7: '7',
 };
 
 /** Convert MIDI note number to Hz (A4 = 69 = 440 Hz) */
@@ -101,3 +108,63 @@ export const CIRCLE_MINOR: { displayName: string; root: NoteName; quality: Chord
   { displayName: 'Gm',  root: 'G',  quality: 'minor' },
   { displayName: 'Dm',  root: 'D',  quality: 'minor' },
 ];
+
+export const EXERCISE_KINDS = ['ii-v-i', 'turnaround', 'blues'] as const;
+export type ExerciseKind = typeof EXERCISE_KINDS[number];
+
+/** Find the preset and key a progression came from, if it is still an unedited preset. */
+export function matchExercise(progression: ChordDefinition[]): { tonic: PitchClass; kind: ExerciseKind } | null {
+  if (progression.length === 0) return null;
+  for (const kind of EXERCISE_KINDS) {
+    for (let tonic = 0; tonic < 12; tonic++) {
+      const exercise = buildExercise(tonic as PitchClass, kind);
+      if (exercise.length === progression.length && exercise.every((chord, i) =>
+        chord.rootPitchClass === progression[i].rootPitchClass && chord.quality === progression[i].quality)) {
+        return { tonic: tonic as PitchClass, kind };
+      }
+    }
+  }
+  return null;
+}
+
+/** Transpose a functional exercise to a chosen tonic. */
+export function buildExercise(tonic: PitchClass, kind: ExerciseKind): ChordDefinition[] {
+  const steps: [number, ChordQuality][] = kind === 'ii-v-i'
+    ? [[2, 'minor7'], [7, 'dominant7'], [0, 'major7']]
+    : kind === 'turnaround'
+      ? [[0, 'major7'], [9, 'minor7'], [2, 'minor7'], [7, 'dominant7']]
+      : [[0, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'],
+         [5, 'dominant7'], [5, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'],
+         [7, 'dominant7'], [5, 'dominant7'], [0, 'dominant7'], [7, 'dominant7']];
+  return steps.map(([interval, quality]) => {
+    const root = PC_TO_NOTE[((tonic + interval) % 12) as PitchClass];
+    const displayRoot = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'][NOTE_TO_PC[root]];
+    return makeChordDefinition(makeChordLabel(displayRoot, quality), root, quality);
+  });
+}
+
+/** Spell stacked thirds from the displayed root, including flat keys. */
+export function chordToneNames(chord: ChordDefinition): string[] {
+  const letters = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const naturals = [0, 2, 4, 5, 7, 9, 11];
+  const rootLetter = letters.indexOf(chord.label[0]);
+  return buildVoicing(chord.rootPitchClass, chord.quality).pitchClasses.map((pc, i) => {
+    const index = (rootLetter + 2 * i) % 7;
+    const offset = ((pc - naturals[index] + 18) % 12) - 6;
+    return letters[index] + (offset > 0 ? '♯'.repeat(offset) : '♭'.repeat(-offset));
+  });
+}
+
+/** Chord labels are stored in ASCII (Bbmaj7, F#m); show them with real accidentals. */
+export function formatChordLabel(label: string): string {
+  return label.replace(/^([A-G])b/, '$1♭').replace(/^([A-G])#/, '$1♯');
+}
+
+/** Name a pitch class the way the chord spells it, so E♭ over Cm7 never reads as D♯. */
+export function spellPitchClass(pitchClass: PitchClass, chord?: ChordDefinition | null): string {
+  if (chord) {
+    const index = buildVoicing(chord.rootPitchClass, chord.quality).pitchClasses.indexOf(pitchClass);
+    if (index >= 0) return chordToneNames(chord)[index];
+  }
+  return PC_TO_NOTE_NAME[pitchClass];
+}

@@ -1,3 +1,4 @@
+import { NoteGate } from './noteGate';
 import type { PitchClass } from '../engine/chordData.types';
 import type { MicDeviceInfo, MicInputSnapshot } from './micInput.types';
 import { yinDetect, frequencyToPitchClass, computeRMS } from './pitchDetector';
@@ -11,6 +12,7 @@ const EMPTY_SNAPSHOT: MicInputSnapshot = {
     typeof navigator !== 'undefined' &&
     typeof navigator.mediaDevices !== 'undefined' &&
     'getUserMedia' in navigator.mediaDevices,
+  error: null,
   isConnected: false,
   activeDevice: null,
   availableDevices: [],
@@ -18,6 +20,8 @@ const EMPTY_SNAPSHOT: MicInputSnapshot = {
 };
 
 export class MicInput {
+  private gate = new NoteGate();
+  private connectionVersion = 0;
   private noteCallback: (pitchClass: PitchClass) => void;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -39,78 +43,66 @@ export class MicInput {
       !navigator.mediaDevices ||
       !('getUserMedia' in navigator.mediaDevices)
     ) {
-      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false };
+      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false, error: 'Microphone access requires a supported browser and HTTPS or localhost.' };
       this.notify();
       return;
     }
 
-    try {
-      // Request mic access to trigger permission prompt
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Stop the temporary stream — we'll create a proper one in connect()
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-
-      // Enumerate devices now that we have permission
-      await this.updateAvailableDevices();
-
-      // Auto-connect to first available device
-      if (this.currentSnapshot.availableDevices.length > 0) {
-        await this.connect();
-      }
-    } catch {
-      // User denied access or browser error
-      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false };
-      this.notify();
-    }
+    await this.connect();
   }
 
   async connect(deviceId?: string): Promise<void> {
-    // Disconnect any existing connection first
+    const previousId = this.currentSnapshot.activeDevice?.id;
     this.disconnectInternal();
-
+    const version = this.connectionVersion;
+    this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, lastNote: null, activeDevice: null, error: null };
+    this.notify();
     try {
-      const constraints: MediaStreamConstraints = {
-        audio: deviceId
-          ? { deviceId: { exact: deviceId } }
-          : true,
-      };
-
-      this.stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      // Create audio context and analyser
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      if (version !== this.connectionVersion) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.stream = stream;
       this.audioContext = new AudioContext();
+      await this.audioContext.resume();
+      if (version !== this.connectionVersion) return;
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = BUFFER_SIZE;
-
-      // Connect stream → analyser (no output — we only read data)
-      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      this.sourceNode = this.audioContext.createMediaStreamSource(stream);
       this.sourceNode.connect(this.analyser);
-
-      // Identify connected device
-      const track = this.stream.getAudioTracks()[0];
-      const settings = track.getSettings();
-      const device: MicDeviceInfo = {
-        id: settings.deviceId ?? deviceId ?? 'default',
-        name: track.label || 'Microphone',
-      };
-
+      const track = stream.getAudioTracks()[0];
+      track.addEventListener('ended', () => {
+        if (version !== this.connectionVersion) return;
+        this.disconnect();
+        this.currentSnapshot = { ...this.currentSnapshot, error: 'The microphone was disconnected. Reconnect it and connect again.' };
+        this.notify();
+      });
       this.currentSnapshot = {
-        ...this.currentSnapshot,
-        isConnected: true,
-        activeDevice: device,
+        ...this.currentSnapshot, isConnected: true, error: null,
+        activeDevice: { id: track.getSettings().deviceId ?? deviceId ?? 'default', name: track.label || 'Microphone' },
       };
       this.notify();
-
-      // Start detection loop
       this.detectionLoop();
+      await this.updateAvailableDevices();
     } catch {
-      this.currentSnapshot = {
-        ...this.currentSnapshot,
-        isConnected: false,
-        activeDevice: null,
-      };
+      if (version !== this.connectionVersion) return;
+      this.disconnectInternal();
+      // A failed switch should not cost the player the microphone that was working.
+      if (deviceId && previousId && previousId !== deviceId) {
+        await this.connect(previousId);
+        if (this.currentSnapshot.isConnected) {
+          this.currentSnapshot = { ...this.currentSnapshot,
+            error: 'Could not switch to that microphone. Still using the previous one.' };
+          this.notify();
+          return;
+        }
+      }
+      this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, activeDevice: null,
+        error: 'Microphone access failed. Check browser permissions and that the selected device is available.' };
       this.notify();
     }
   }
@@ -151,32 +143,29 @@ export class MicInput {
 
     this.analyser.getFloatTimeDomainData(this.buffer);
 
-    // Silence gate: skip detection if signal is too quiet
     const rms = computeRMS(this.buffer);
-    if (rms > SILENCE_THRESHOLD) {
-      const result = yinDetect(this.buffer, this.audioContext!.sampleRate);
-
-      if (result && result.confidence >= CONFIDENCE_THRESHOLD) {
-        const pitchClass = frequencyToPitchClass(result.frequency);
-
-        this.currentSnapshot = {
-          ...this.currentSnapshot,
-          lastNote: {
-            frequency: result.frequency,
-            pitchClass,
-            confidence: result.confidence,
-          },
-        };
-        this.notify();
-
-        this.noteCallback(pitchClass);
-      }
+    const result = rms > SILENCE_THRESHOLD
+      ? yinDetect(this.buffer, this.audioContext!.sampleRate) : null;
+    const valid = result && result.confidence >= CONFIDENCE_THRESHOLD;
+    const pitchClass = valid ? frequencyToPitchClass(result.frequency) : null;
+    // Publish only when the displayed note changes, not on every animation frame.
+    if ((this.currentSnapshot.lastNote?.pitchClass ?? null) !== pitchClass) {
+      this.currentSnapshot = {
+        ...this.currentSnapshot,
+        lastNote: valid && pitchClass !== null
+          ? { frequency: result.frequency, pitchClass, confidence: result.confidence } : null,
+      };
+      this.notify();
     }
+    const onset = this.gate.update(pitchClass, performance.now());
+    if (onset !== null) this.noteCallback(onset);
 
     this.animFrameId = requestAnimationFrame(this.detectionLoop);
   };
 
   private disconnectInternal(): void {
+    this.connectionVersion++;
+    this.gate = new NoteGate();
     // Cancel detection loop
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);

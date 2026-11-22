@@ -3,6 +3,7 @@ import type { MidiDeviceInfo, MidiInputSnapshot } from './midiInput.types';
 
 const EMPTY_SNAPSHOT: MidiInputSnapshot = {
   isSupported: typeof navigator !== 'undefined' && 'requestMIDIAccess' in navigator,
+  error: null,
   isConnected: false,
   activeDevice: null,
   availableDevices: [],
@@ -19,8 +20,7 @@ export class MidiInput {
 
   // Bound handlers for proper removal
   private boundHandleMidiMessage = (e: MIDIMessageEvent) => this.handleMidiMessage(e);
-  private boundHandleStateChange = (e: Event) =>
-    this.handleStateChange(e as MIDIConnectionEvent);
+  private boundHandleStateChange = () => this.handleStateChange();
 
   constructor(noteCallback: (pitchClass: PitchClass) => void) {
     this.noteCallback = noteCallback;
@@ -28,12 +28,13 @@ export class MidiInput {
 
   async requestAccess(): Promise<void> {
     if (!('requestMIDIAccess' in navigator)) {
-      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false };
+      this.currentSnapshot = { ...this.currentSnapshot, error: 'MIDI is unavailable in this browser. Try a browser with Web MIDI support.', isSupported: false };
       this.notify();
       return;
     }
 
     try {
+      this.midiAccess?.removeEventListener('statechange', this.boundHandleStateChange);
       this.midiAccess = await navigator.requestMIDIAccess();
       this.midiAccess.addEventListener('statechange', this.boundHandleStateChange);
       this.updateAvailableDevices();
@@ -41,10 +42,13 @@ export class MidiInput {
       // Auto-connect to first available input
       if (this.currentSnapshot.availableDevices.length > 0) {
         this.connect();
+      } else {
+        this.currentSnapshot = { ...this.currentSnapshot, error: 'No MIDI inputs found. Connect a keyboard and try again.' };
+        this.notify();
       }
     } catch {
       // User denied access or browser error
-      this.currentSnapshot = { ...this.currentSnapshot, isSupported: false };
+      this.currentSnapshot = { ...this.currentSnapshot, error: 'MIDI access failed. Check browser permissions and reconnect your device.' };
       this.notify();
     }
   }
@@ -67,6 +71,7 @@ export class MidiInput {
 
     this.currentSnapshot = {
       ...this.currentSnapshot,
+      error: null,
       isConnected: true,
       activeDevice: {
         id: target.id,
@@ -84,6 +89,7 @@ export class MidiInput {
     this.currentSnapshot = {
       ...this.currentSnapshot,
       isConnected: false,
+      lastNote: null,
       activeDevice: null,
     };
     this.notify();
@@ -132,15 +138,22 @@ export class MidiInput {
       this.notify();
 
       this.noteCallback(pitchClass);
+    } else if (status === 0x80 || (status === 0x90 && velocity === 0)) {
+      if (this.currentSnapshot.lastNote?.midiNote === note) {
+        this.currentSnapshot = { ...this.currentSnapshot, lastNote: null };
+        this.notify();
+      }
     }
   }
 
-  private handleStateChange(_event: MIDIConnectionEvent): void {
+  private handleStateChange(): void {
     this.updateAvailableDevices();
 
     // If active device was disconnected, clear connection
     if (this.activeInput && this.activeInput.state === 'disconnected') {
       this.disconnect();
+      this.currentSnapshot = { ...this.currentSnapshot, error: 'The MIDI device was disconnected. Reconnect it and connect again.' };
+      this.notify();
     }
   }
 

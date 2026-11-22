@@ -6,5 +6,33 @@
   --color-background-dark: #0a0f08;
   --color-surface: #161d14;
   --color-border-muted: #274b20;
+  /* Side panels: surface at 30% over background-dark, as a solid so scroll cues can match it. */
+  --color-panel: #0e130c;
+  /* Two text roles; both pass 4.5:1 on background-dark and surface. */
+  --color-ink: #e2e8f0;
+  --color-ink-muted: #94a3b8;
+  /* Type scale: label (11px), xs (12px), sm (14px), lg (18px). */
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1rem;
   --font-family-display: "Inter", sans-serif;
+}
+
+:root { color-scheme: dark; }
+
+button, select, input, summary { outline-offset: 4px; }
+button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (min-width: 1024px) {
+  .circle-stage { container-type: size; }
+  .circle-disc { width: min(100cqw, 100cqh); }
+}
+/* Shows a soft edge at the bottom of a scrolling panel while more content is below.
+   The first layer travels with the content and covers the cue at the end. */
+.scroll-cue {
+  background:
+    linear-gradient(to top, var(--color-panel) 40%, transparent) bottom / 100% 40px no-repeat local,
+    linear-gradient(to top, rgb(148 163 184 / 0.4), transparent) bottom / 100% 14px no-repeat scroll,
+    var(--color-panel);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }

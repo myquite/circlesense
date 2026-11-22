@@ -31,6 +31,9 @@ export class Conductor {
   /** Display position — updates when the beat actually sounds */
   private displayPosition: ConductorPosition = { bar: 0, beat: 0, totalBars: 0 };
 
+  private barTimeline: { audioTime: number; id: number }[] = [];
+  private barSerial = 0;
+  private clicks = new Set<OscillatorNode>();
   private countInRemaining = 0;
   private displayCountIn = 0;
   private nextBeatTime = 0;
@@ -61,8 +64,11 @@ export class Conductor {
     const wasStoppedOrFirst = this.transport === 'stopped';
 
     if (wasStoppedOrFirst) {
+      this.barTimeline = [];
+      this.barSerial = 0;
       // Start count-in
       this.transport = 'counting';
+      this.emitTransport();
       this.countInRemaining = COUNT_IN_BEATS;
       this.displayCountIn = 0;
       this.position = { bar: 0, beat: 0, totalBars: 0 };
@@ -71,11 +77,15 @@ export class Conductor {
       this.startScheduler();
       this.notifySnapshot();
     } else {
-      // Resuming from pause — no count-in
-      this.transport = 'playing';
+      // Resume at the start of the current chord, retaining the session.
+      // A count-in gives the player time to get back to the instrument.
+      this.position = { ...this.displayPosition, bar: 0, beat: 0 };
+      this.transport = 'counting';
+      this.emitTransport(true);
+      this.countInRemaining = COUNT_IN_BEATS;
+      this.displayCountIn = 0;
       this.nextBeatTime = this.ctx.currentTime + 0.05;
       this.startScheduler();
-      this.emitTransport();
       this.notifySnapshot();
     }
   }
@@ -87,6 +97,7 @@ export class Conductor {
     this.displayCountIn = 0;
     this.stopScheduler();
     this.clearDisplayTimers();
+    this.stopClicks();
     this.emitTransport();
     this.notifySnapshot();
   }
@@ -98,6 +109,7 @@ export class Conductor {
     this.displayCountIn = 0;
     this.stopScheduler();
     this.clearDisplayTimers();
+    this.stopClicks();
     this.position = { bar: 0, beat: 0, totalBars: 0 };
     this.displayPosition = { bar: 0, beat: 0, totalBars: 0 };
     this.emitTransport();
@@ -124,6 +136,10 @@ export class Conductor {
     if (barLength === this.config.barLength) return;
     this.config = { ...this.config, barLength };
     this.notifySnapshot();
+  }
+
+  getCurrentBarId(): number {
+    return this.barTimeline.filter((bar) => bar.audioTime <= this.ctx.currentTime).at(-1)?.id ?? 0;
   }
 
   // --- Event subscription ---
@@ -157,6 +173,7 @@ export class Conductor {
   dispose(): void {
     this.stopScheduler();
     this.clearDisplayTimers();
+    this.stopClicks();
     this.listeners.clear();
     this.snapshotListeners.clear();
     this.ctx.close();
@@ -184,13 +201,18 @@ export class Conductor {
   }
 
   /** Schedule a UI update to fire when a beat actually becomes audible */
-  private scheduleDisplayUpdate(audioTime: number, update: () => void): void {
+  scheduleDisplayUpdate(audioTime: number, update: () => void): void {
     const delayMs = Math.max(0, (audioTime - this.ctx.currentTime) * 1000);
     const timer = setTimeout(() => {
+      this.displayTimers = this.displayTimers.filter((t) => t !== timer);
+      // Timers can fire early or while AudioContext is suspended.
+      if (this.ctx.currentTime + 0.000001 < audioTime) {
+        this.scheduleDisplayUpdate(audioTime, update);
+        return;
+      }
       update();
       this.notifySnapshot();
-      this.displayTimers = this.displayTimers.filter((t) => t !== timer);
-    }, delayMs);
+    }, Math.max(1, delayMs));
     this.displayTimers.push(timer);
   }
 
@@ -201,7 +223,7 @@ export class Conductor {
     while (this.nextBeatTime < deadline) {
       const audioTime = this.nextBeatTime;
 
-      if (this.transport === 'counting') {
+      if (this.transport === 'counting' && this.countInRemaining > 0) {
         // Count-in phase: tick beats but don't emit bar/cycle events
         this.scheduleClick(audioTime);
         const beatNum = COUNT_IN_BEATS - this.countInRemaining + 1;
@@ -213,16 +235,18 @@ export class Conductor {
         });
 
         if (this.countInRemaining <= 0) {
-          // Count-in done — transition to playing
-          this.transport = 'playing';
-          this.position = { bar: 0, beat: 0, totalBars: 0 };
-          this.emitTransport();
+          // Schedule playback after the final count-in beat, from the position play() chose.
           this.nextBeatTime = audioTime + secsPerBeat;
           break;
         }
 
         this.nextBeatTime = audioTime + secsPerBeat;
         continue;
+      }
+
+      if (this.transport === 'counting') {
+        this.transport = 'playing';
+        this.emitTransport();
       }
 
       // Normal playback
@@ -234,6 +258,8 @@ export class Conductor {
 
       // Emit bar event on beat 0
       if (beat === 0) {
+        this.barTimeline.push({ audioTime, id: ++this.barSerial });
+        this.barTimeline = this.barTimeline.slice(-4);
         this.emit('bar', { type: 'bar', audioTime, bar });
       }
 
@@ -245,6 +271,7 @@ export class Conductor {
       // Schedule display update for when this beat actually sounds
       const displayPos = { ...this.position };
       this.scheduleDisplayUpdate(audioTime, () => {
+        this.displayCountIn = 0;
         this.displayPosition = displayPos;
       });
 
@@ -265,10 +292,17 @@ export class Conductor {
     }
   }
 
+  private stopClicks(): void {
+    for (const click of this.clicks) { try { click.stop(); } catch { /* already ended */ } }
+    this.clicks.clear();
+  }
+
   private scheduleClick(audioTime: number): void {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
 
+    this.clicks.add(osc);
+    osc.onended = () => { this.clicks.delete(osc); osc.disconnect(); gain.disconnect(); };
     osc.type = 'sine';
     osc.frequency.value = 1000;
 
@@ -286,7 +320,7 @@ export class Conductor {
 
   private buildSnapshot(): ConductorSnapshot {
     return {
-      transport: this.transport,
+      transport: this.transport === 'playing' && this.displayCountIn > 0 ? 'counting' : this.transport,
       config: { ...this.config },
       position: { ...this.displayPosition },
       countInBeat: this.displayCountIn,
@@ -309,11 +343,12 @@ export class Conductor {
     }
   }
 
-  private emitTransport(): void {
+  private emitTransport(resuming = false): void {
     const event: TransportEvent = {
       type: 'transport',
       state: this.transport,
       audioTime: this.ctx.currentTime,
+      resuming,
     };
     this.emit('transport', event);
   }

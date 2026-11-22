@@ -13,8 +13,10 @@ export class PlaybackEngine {
   private masterGain: GainNode;
 
   private progression: ChordDefinition[] = [];
-  /** Index of the chord currently sounding */
+  /** Index of the most recently scheduled chord (may be ahead of audible time). */
   private playingIndex = 0;
+  private displayIndex = 0;
+  private chordTimeline: { audioTime: number; chord: ChordDefinition }[] = [];
   private direction: PlaybackDirection = 'clockwise';
   private playbackMode: PlaybackMode = 'sequential';
   private toneType: ToneType = 'piano';
@@ -58,18 +60,28 @@ export class PlaybackEngine {
 
   private handleTransport(event: TransportEvent): void {
     switch (event.state) {
+      case 'counting':
+        if (event.resuming) break; // keep the paused chord
+        this.playingIndex = 0;
+        this.displayIndex = 0;
+        this.chordTimeline = [];
+        this.firstChordScheduled = false;
+        break;
       case 'playing':
         this.playing = true;
-        this.playingIndex = 0;
         this.firstChordScheduled = false;
         this.notifySnapshot();
         break;
       case 'paused':
+        this.playingIndex = this.displayIndex;
+        this.chordTimeline = [];
         this.playing = false;
         this.fadeOutAllVoices();
         this.notifySnapshot();
         break;
       case 'stopped':
+        this.chordTimeline = [];
+        this.displayIndex = 0;
         this.playing = false;
         this.killAllVoices();
         this.playingIndex = 0;
@@ -90,7 +102,13 @@ export class PlaybackEngine {
     const duration = beatsPerBar * barLength * secsPerBeat;
 
     this.scheduleChord(voicing.frequencies, audioTime, duration);
-    this.notifySnapshot();
+    this.chordTimeline.push({ audioTime, chord });
+    this.chordTimeline = this.chordTimeline.slice(-4);
+    const index = this.playingIndex;
+    this.conductor.scheduleDisplayUpdate(audioTime, () => {
+      this.displayIndex = index;
+      this.notifySnapshot();
+    });
   }
 
   private advancePlayingIndex(): void {
@@ -109,15 +127,15 @@ export class PlaybackEngine {
     }
   }
 
-  private nextIndex(): number {
+  private nextIndex(index = this.playingIndex): number {
     const len = this.progression.length;
     if (len <= 1) return 0;
 
     if (this.playbackMode === 'random') {
-      return this.playingIndex; // can't predict random
+      return index; // can't predict random
     }
     const step = this.direction === 'clockwise' ? 1 : -1;
-    return ((this.playingIndex + step) + len) % len;
+    return ((index + step) + len) % len;
   }
 
   // --- Tone Synthesis ---
@@ -321,7 +339,20 @@ export class PlaybackEngine {
 
   // --- Public API ---
 
+  getCurrentChord(): ChordDefinition | null {
+    if (!this.playing) return null;
+    return this.chordTimeline.filter((entry) => entry.audioTime <= this.ctx.currentTime).at(-1)?.chord ?? null;
+  }
+
+  private prepareEdit(): void {
+    this.conductor.stop();
+    this.displayIndex = 0;
+    this.playingIndex = 0;
+    this.firstChordScheduled = false;
+  }
+
   setProgression(chords: ChordDefinition[]): void {
+    this.prepareEdit();
     this.progression = [...chords];
     this.playingIndex = 0;
     this.firstChordScheduled = false;
@@ -329,11 +360,13 @@ export class PlaybackEngine {
   }
 
   addChord(chord: ChordDefinition): void {
+    this.prepareEdit();
     this.progression.push(chord);
     this.notifySnapshot();
   }
 
   removeChord(index: number): void {
+    this.prepareEdit();
     if (index < 0 || index >= this.progression.length) return;
     this.progression.splice(index, 1);
     if (this.playingIndex >= this.progression.length) {
@@ -343,6 +376,7 @@ export class PlaybackEngine {
   }
 
   clearProgression(): void {
+    this.prepareEdit();
     this.progression = [];
     this.playingIndex = 0;
     this.firstChordScheduled = false;
@@ -365,18 +399,7 @@ export class PlaybackEngine {
     if (tone === this.toneType) return;
     this.toneType = tone;
 
-    // Re-trigger current chord immediately so the user hears the difference
-    if (this.playing && this.progression.length > 0) {
-      this.fadeOutAllVoices();
-      const chord = this.progression[this.playingIndex];
-      const voicing = buildVoicing(chord.rootPitchClass, chord.quality);
-      const { bpm, beatsPerBar, barLength } = this.conductor.getSnapshot().config;
-      const secsPerBeat = 60 / bpm;
-      // Use remaining time as a rough duration
-      const duration = beatsPerBar * barLength * secsPerBeat;
-      this.scheduleChord(voicing.frequencies, this.ctx.currentTime + 0.05, duration);
-    }
-
+    // Apply to newly scheduled chords so sound and scoring retain the same timeline.
     this.notifySnapshot();
   }
 
@@ -407,9 +430,9 @@ export class PlaybackEngine {
     const len = this.progression.length;
 
     return {
-      currentChord: len > 0 ? (this.progression[this.playingIndex] ?? null) : null,
-      nextChord: len > 0 ? (this.progression[this.nextIndex()] ?? null) : null,
-      chordIndex: this.playingIndex,
+      currentChord: len > 0 ? (this.progression[this.displayIndex] ?? null) : null,
+      nextChord: len > 0 && this.playbackMode !== 'random' ? (this.progression[this.nextIndex(this.displayIndex)] ?? null) : null,
+      chordIndex: this.displayIndex,
       isActive: this.playing,
       direction: this.direction,
       playbackMode: this.playbackMode,
