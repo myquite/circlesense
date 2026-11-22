@@ -20,6 +20,21 @@ const EMPTY_SNAPSHOT: MicInputSnapshot = {
   lastNote: null,
 };
 
+/** Say what went wrong in terms the player can act on. */
+function describeFailure(cause: unknown): string {
+  const name = cause instanceof Error ? cause.name : '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Microphone permission was blocked. Allow the microphone for this site in your browser settings, then try again.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'No microphone was found. Check that one is connected and try again.';
+  }
+  if (name === 'NotReadableError' || name === 'AbortError') {
+    return 'The microphone is in use or unavailable. Close other apps using it and try again.';
+  }
+  return `Microphone access failed${name ? ` (${name})` : ''}. Check browser permissions and that the selected device is available.`;
+}
+
 export class MicInput {
   private gate = new NoteGate();
   private connectionVersion = 0;
@@ -59,6 +74,8 @@ export class MicInput {
     this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, lastNote: null, activeDevice: null, error: null };
     this.notify();
     try {
+      // Before asking for the microphone: Safari refuses capture while the session is playback-only.
+      setAudioSession('play-and-record');
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
           echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -68,7 +85,6 @@ export class MicInput {
         return;
       }
       this.stream = stream;
-      setAudioSession('play-and-record');
       this.audioContext = new AudioContext();
       await this.audioContext.resume();
       if (version !== this.connectionVersion) return;
@@ -90,7 +106,7 @@ export class MicInput {
       this.notify();
       this.detectionLoop();
       await this.updateAvailableDevices();
-    } catch {
+    } catch (cause) {
       if (version !== this.connectionVersion) return;
       this.disconnectInternal();
       // A failed switch should not cost the player the microphone that was working.
@@ -103,8 +119,7 @@ export class MicInput {
           return;
         }
       }
-      this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, activeDevice: null,
-        error: 'Microphone access failed. Check browser permissions and that the selected device is available.' };
+      this.currentSnapshot = { ...this.currentSnapshot, isConnected: false, activeDevice: null, error: describeFailure(cause) };
       this.notify();
     }
   }
@@ -193,8 +208,8 @@ export class MicInput {
         track.stop();
       }
       this.stream = null;
-      setAudioSession('playback');
     }
+    setAudioSession('playback');
   }
 
   private async updateAvailableDevices(): Promise<void> {

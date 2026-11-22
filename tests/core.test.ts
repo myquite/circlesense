@@ -292,9 +292,13 @@ test('a failed microphone switch falls back to the working device', async (t) =>
     getTracks: () => [{ stop() {} }],
     getAudioTracks: () => [{ label: `Mic ${id}`, getSettings: () => ({ deviceId: id }), addEventListener() {} }],
   });
-  replace('navigator', { mediaDevices: {
+  // Like Safari: capture is refused unless the session allows recording when it is requested.
+  const audioSession = { type: 'playback' };
+  replace('navigator', { audioSession, mediaDevices: {
     getUserMedia: async ({ audio }: { audio: { deviceId?: { exact: string } } }) => {
+      if (audioSession.type !== 'play-and-record') throw new DOMException('session is playback-only', 'InvalidStateError');
       const id = audio.deviceId?.exact ?? 'a';
+      if (id === 'denied') throw new DOMException('denied', 'NotAllowedError');
       if (id === 'broken') throw new Error('NotReadableError');
       return stream(id);
     },
@@ -310,6 +314,7 @@ test('a failed microphone switch falls back to the working device', async (t) =>
   const mic = new MicInput(() => {});
   await mic.requestAccess();
   assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
+  assert.equal(audioSession.type, 'play-and-record');
   await mic.connect('broken');
   assert.equal(mic.getSnapshot().isConnected, true);
   assert.equal(mic.getSnapshot().activeDevice?.id, 'a');
@@ -318,6 +323,9 @@ test('a failed microphone switch falls back to the working device', async (t) =>
   await mic.connect('broken'); // nothing to fall back to
   assert.equal(mic.getSnapshot().isConnected, false);
   assert.match(mic.getSnapshot().error ?? '', /access failed/);
+  assert.equal(audioSession.type, 'playback'); // handed back to playback once the mic is closed
+  await mic.connect('denied');
+  assert.match(mic.getSnapshot().error ?? '', /permission was blocked/);
   mic.dispose();
 });
 
