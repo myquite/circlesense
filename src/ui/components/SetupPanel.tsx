@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { EXERCISE_KINDS, buildExercise, formatChordLabel, matchExercise } from '../../engine/chordData';
 import type { ExerciseKind } from '../../engine/chordData';
-import type { ChordDefinition, PitchClass } from '../../engine/chordData.types';
+import type { PitchClass } from '../../engine/chordData.types';
 import { PC_TO_NOTE_NAME } from '../../engine/scaleData';
 import { useJudge } from '../../engine/useJudge';
 import type { PracticeTarget } from '../../engine/judge.types';
@@ -11,6 +11,7 @@ import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { TONE_TYPES } from '../../audio/playbackEngine.types';
 import type { PlaybackDirection, PlaybackMode } from '../../audio/playbackEngine.types';
 import InputSetup from './InputSetup';
+import { useProgressionEdits } from '../useProgressionEdits';
 import AudioDebug from './AudioDebug';
 import { TARGET_NAMES } from '../labels';
 import { Button, IconButton, SectionHeading, Segmented, Select } from '../primitives';
@@ -22,19 +23,6 @@ const PRESET_NAMES: Record<ExerciseKind, string> = {
 };
 
 const PITCH_CLASSES = Object.keys(PC_TO_NOTE_NAME).map(Number) as PitchClass[];
-
-interface UndoState {
-  message: string;
-  progression: ChordDefinition[];
-  playbackMode: PlaybackMode;
-  direction: PlaybackDirection;
-  /** Signature of the progression the edit produced; undo is offered only while it still stands. */
-  after: string;
-}
-
-function signature(chords: ChordDefinition[]): string {
-  return chords.map((c) => c.label).join('|');
-}
 
 const PRESET_OPTIONS = EXERCISE_KINDS.map((kind) => ({ value: kind, label: PRESET_NAMES[kind] }));
 const KEY_OPTIONS = PITCH_CLASSES.map((pc) => ({ value: pc, label: PC_TO_NOTE_NAME[pc] }));
@@ -52,7 +40,7 @@ const DIRECTION_OPTIONS: { value: PlaybackDirection; label: string }[] = [
 
 export default function SetupPanel() {
   const [manualTonic, setManualTonic] = useState<PitchClass>(0);
-  const [undo, setUndo] = useState<UndoState | null>(null);
+  const { undo, replaceProgression, applyUndo } = useProgressionEdits();
   const [isOpen, setIsOpen] = useState(true);
   const { target, setTarget } = useJudge();
   const { transport, config, setBarLength } = useConductor();
@@ -74,15 +62,6 @@ export default function SetupPanel() {
   const tonic = preset?.tonic ?? manualTonic;
   const activeIndex = transport === 'stopped' ? -1 : chordIndex;
 
-  const current = signature(progression);
-  if (undo && undo.after !== current) setUndo(null);
-
-  function replaceProgression(next: ChordDefinition[], message: string) {
-    const before = progression.length > 0 ? { message, progression, playbackMode, direction, after: signature(next) } : null;
-    setProgression(next);
-    setUndo(before);
-  }
-
   function loadPreset(kind: ExerciseKind) {
     if (preset?.kind === kind) return;
     replaceProgression(buildExercise(tonic, kind), 'Progression replaced.');
@@ -93,14 +72,6 @@ export default function SetupPanel() {
   function changeKey(next: PitchClass) {
     setManualTonic(next);
     if (preset) setProgression(buildExercise(next, preset.kind));
-  }
-
-  function applyUndo() {
-    if (!undo) return;
-    setProgression(undo.progression);
-    setPlaybackMode(undo.playbackMode);
-    setDirection(undo.direction);
-    setUndo(null);
   }
 
   const isRunning = transport === 'playing' || transport === 'counting';
@@ -138,7 +109,7 @@ export default function SetupPanel() {
             <Segmented label="Preset" options={PRESET_OPTIONS} value={preset?.kind ?? null} onChange={loadPreset} />
             <div className="flex flex-wrap gap-1.5 min-h-12 bg-surface/50 border border-border-muted rounded-lg p-2">
               {progression.length === 0 ? (
-                <span className="text-xs text-ink-muted">Load a preset, or click chords on the circle.</span>
+                <span className="text-xs text-ink-muted">Load a preset, or tap chords on the circle.</span>
               ) : (
                 progression.map((chord, idx) => (
                   <div
@@ -207,7 +178,7 @@ export default function SetupPanel() {
               <li>Space plays or pauses. Esc stops.</li>
               <li>Pause to change tempo or bars per chord. Resume counts you back in at the start of the current chord.</li>
               <li>Changing the target, the input, or pressing play after a stop starts a new take. The one before stays visible as “Previous take”.</li>
-              <li>Editing the progression stops playback. The circle is locked while chords are playing.</li>
+              <li>Tap a chord on the circle to add it; tap a lit chord to remove it. Editing stops playback, and the circle is locked while chords are playing.</li>
             </ul>
           </details>
         </div>

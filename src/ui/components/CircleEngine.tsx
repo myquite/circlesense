@@ -1,6 +1,8 @@
 import { useConductor } from '../../audio/useConductor';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
-import { CIRCLE_MAJOR, CIRCLE_MINOR, formatChordLabel, makeChordDefinition } from '../../engine/chordData';
+import { CIRCLE_MAJOR, CIRCLE_MINOR, formatChordLabel, matchesCircleEntry, toggleCircleChord } from '../../engine/chordData';
+import { useProgressionEdits } from '../useProgressionEdits';
+import { Button } from '../primitives';
 import type { ChordQuality, NoteName } from '../../engine/chordData.types';
 
 // Outer ring is major, inner ring is relative minor. Radius is a percentage of the disc;
@@ -13,7 +15,8 @@ const RINGS = [
 
 export default function CircleEngine() {
   const { position, config, transport, countInBeat } = useConductor();
-  const { currentChord, progression, addChord } = usePlaybackEngine();
+  const { currentChord, progression, chordIndex } = usePlaybackEngine();
+  const { undo, replaceProgression, applyUndo } = useProgressionEdits();
   const isPlaying = transport === 'playing';
   const isCounting = transport === 'counting';
 
@@ -26,11 +29,18 @@ export default function CircleEngine() {
 
   function handleChordClick(displayName: string, root: NoteName, quality: ChordQuality) {
     if (locked) return;
-    addChord(makeChordDefinition(displayName, root, quality));
+    // A node is a toggle: lit means "in the progression", so tapping it takes the chord out.
+    const { next, removed } = toggleCircleChord(progression, displayName, root, quality);
+    if (removed.length === 0) {
+      replaceProgression(next, `Added ${formatChordLabel(displayName)}.`);
+    } else {
+      const names = [...new Set(removed.map((chord) => formatChordLabel(chord.label)))].join(', ');
+      replaceProgression(next, `Removed ${names}${removed.length > 1 ? ` (${removed.length} chords)` : ''}.`);
+    }
   }
 
   function isInProgression(root: NoteName, quality: ChordQuality): boolean {
-    return progression.some((c) => c.root === root && (quality === 'minor' ? c.quality.startsWith('minor') : !c.quality.startsWith('minor')));
+    return progression.some((chord) => matchesCircleEntry(chord, root, quality));
   }
 
   function isActiveChord(root: NoteName, quality: ChordQuality): boolean {
@@ -38,7 +48,8 @@ export default function CircleEngine() {
   }
 
   return (
-    <div className="zone-circle circle-stage relative flex flex-col items-center justify-center m-3">
+    <div className="zone-circle flex flex-col">
+      <div className="circle-stage relative m-3 flex min-h-0 flex-1 items-center justify-center">
       {/* The Circle — aspect-ratio locked, scales to fit */}
       <div
         className="circle-disc relative aspect-square rounded-full border border-border-muted/30 flex items-center justify-center"
@@ -66,8 +77,9 @@ export default function CircleEngine() {
                 transform: 'translate(-50%, -50%)',
               }}
               aria-disabled={locked}
+              aria-pressed={inProg}
               aria-current={active ? 'true' : undefined}
-              title={locked ? 'Pause or stop to edit the progression' : `Add ${formatChordLabel(entry.displayName)} to the progression`}
+              title={locked ? 'Pause or stop to edit the progression' : `${inProg ? 'Remove' : 'Add'} ${formatChordLabel(entry.displayName)} ${inProg ? 'from' : 'to'} the progression`}
               onClick={() => handleChordClick(entry.displayName, entry.root, entry.quality)}
             >
               {formatChordLabel(entry.displayName)}
@@ -101,6 +113,26 @@ export default function CircleEngine() {
             ))
           )}
         </div>
+      </div>
+      </div>
+
+      {/* Phones show one zone at a time, so the progression and the result of each tap are spelled out here. */}
+      <div className="space-y-1 px-4 pb-2 text-xs lg:hidden">
+        <p className="text-ink-muted">
+          {progression.length === 0
+            ? 'No chords yet.'
+            : progression.map((chord, i) => (
+              <span key={`${chord.label}-${i}`}>
+                {i > 0 && ' → '}
+                <span className={transport !== 'stopped' && i === chordIndex ? 'font-bold text-ink underline' : 'text-ink'}>{formatChordLabel(chord.label)}</span>
+              </span>
+            ))}
+        </p>
+        <p role="status" className="flex min-h-8 items-center gap-1 text-ink-muted pointer-coarse:min-h-11">
+          {undo
+            ? <><span className="text-ink">{undo.message}</span> <Button variant="quiet" onClick={applyUndo}>Undo</Button></>
+            : locked ? 'Pause or stop to edit the chords.' : 'Tap a chord to add it. Tap a lit chord to remove it.'}
+        </p>
       </div>
     </div>
   );

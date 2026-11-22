@@ -168,3 +168,25 @@ export function spellPitchClass(pitchClass: PitchClass, chord?: ChordDefinition 
   }
   return PC_TO_NOTE_NAME[pitchClass];
 }
+
+/** Whether a progression chord belongs to a circle node: same root, same major/minor family. */
+export function matchesCircleEntry(chord: ChordDefinition, root: NoteName, quality: ChordQuality): boolean {
+  return chord.root === root && chord.quality.startsWith('minor') === quality.startsWith('minor');
+}
+
+/**
+ * Tapping a circle node toggles its chord: an unlit node appends its triad, a lit node
+ * removes every chord it stands for (so the node goes dark). Returns what was removed.
+ */
+export function toggleCircleChord(
+  progression: ChordDefinition[],
+  displayName: string,
+  root: NoteName,
+  quality: ChordQuality,
+): { next: ChordDefinition[]; removed: ChordDefinition[] } {
+  const removed = progression.filter((chord) => matchesCircleEntry(chord, root, quality));
+  if (removed.length > 0) {
+    return { next: progression.filter((chord) => !matchesCircleEntry(chord, root, quality)), removed };
+  }
+  return { next: [...progression, makeChordDefinition(displayName, root, quality)], removed };
+}

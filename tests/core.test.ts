@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Conductor } from '../src/audio/conductor';
 import { PlaybackEngine } from '../src/audio/playbackEngine';
 import { Judge } from '../src/engine/judge';
-import { buildExercise, matchExercise, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
+import { buildExercise, matchExercise, toggleCircleChord, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
 import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
@@ -364,4 +364,22 @@ test('a first visit opens with a ii-V-I in C; a saved progression, even an empty
   assert.deepEqual(startingProgression(loadSettings()), []);
   settings.progression = [makeChordDefinition('F', 'F', 'major')];
   assert.deepEqual(startingProgression(loadSettings()).map((c) => c.label), ['F']);
+});
+
+test('a circle node toggles its chord: unlit adds, lit removes every chord it stands for', () => {
+  const start = buildExercise(0, 'ii-v-i'); // Dm7 G7 Cmaj7
+  const added = toggleCircleChord(start, 'F', 'F', 'major');
+  assert.deepEqual(added.next.map((c) => c.label), ['Dm7', 'G7', 'Cmaj7', 'F']);
+  assert.equal(added.removed.length, 0);
+  const again = toggleCircleChord(added.next, 'F', 'F', 'major');
+  assert.deepEqual(again.next.map((c) => c.label), ['Dm7', 'G7', 'Cmaj7']);
+  // The Dm node stands for Dm7; tapping it removes the seventh chord, not a second Dm.
+  const minor = toggleCircleChord(start, 'Dm', 'D', 'minor');
+  assert.deepEqual(minor.next.map((c) => c.label), ['G7', 'Cmaj7']);
+  assert.deepEqual(minor.removed.map((c) => c.label), ['Dm7']);
+  // D major is a different node and is added alongside Dm7.
+  assert.equal(toggleCircleChord(start, 'D', 'D', 'major').next.length, 4);
+  const blues = toggleCircleChord(buildExercise(0, 'blues'), 'C', 'C', 'major');
+  assert.equal(blues.removed.length, 7); // seven of the twelve bars are the I chord
+  assert.ok(blues.next.every((c) => c.root !== 'C'));
 });
