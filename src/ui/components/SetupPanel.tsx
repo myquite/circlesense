@@ -106,11 +106,9 @@ export default function SetupPanel() {
   return (
     <aside
       aria-label="Set up"
-      className={`scroll-cue flex flex-col border-b border-border-muted lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:border-b-0 lg:border-r lg:overflow-y-auto ${
-        isOpen ? 'lg:w-72' : ''
-      }`}
+      className={`zone-setup scroll-cue flex flex-col border-border-muted lg:border-r ${isOpen ? 'lg:w-72' : ''}`}
     >
-      <div className={`flex items-center gap-2 p-4 ${isOpen ? 'justify-between' : 'justify-between lg:flex-col lg:px-2'}`}>
+      <div className={`flex items-center justify-between gap-2 py-4 ${isOpen ? '' : 'lg:flex-col'}`}>
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-lg text-primary" aria-hidden="true">adjust</span>
           <h1 className={`text-lg font-bold ${isOpen ? '' : 'lg:hidden'}`}>CircleSense</h1>
@@ -119,12 +117,14 @@ export default function SetupPanel() {
           icon={isOpen ? 'chevron_left' : 'tune'}
           label={isOpen ? 'Hide setup' : 'Show setup'}
           aria-expanded={isOpen}
+          className="max-lg:hidden"
           onClick={() => setIsOpen(!isOpen)}
         />
       </div>
 
-      {isOpen && (
-        <div className="flex flex-col gap-5 px-4 pb-4">
+      {/* Collapsing is a desktop affordance; on phones the tabs decide what shows. */}
+      {(
+        <div className={`flex flex-col gap-5 pb-4 ${isOpen ? '' : 'lg:hidden'}`}>
           <section className="space-y-2">
             <div className="flex min-h-8 items-center justify-between">
               <SectionHeading>Progression ({progression.length})</SectionHeading>
@@ -215,7 +215,7 @@ export default function SetupPanel() {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
       <span className="shrink-0 text-xs text-ink-muted">{label}</span>
       {children}
     </div>

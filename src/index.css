@@ -11,20 +11,77 @@
   /* Two text roles; both pass 4.5:1 on background-dark and surface. */
   --color-ink: #e2e8f0;
   --color-ink-muted: #94a3b8;
-  /* Type scale: label (11px), xs (12px), sm (14px), lg (18px). */
+  /* Type scale: label (11px), xs (12px), sm (14px), lg (18px), display (28px). */
   --text-label: 0.6875rem;
   --text-label--line-height: 1rem;
+  /* Display: the chord being played, read at arm's length on a phone. */
+  --text-display: 1.75rem;
+  --text-display--line-height: 2rem;
   --font-family-display: "Inter", sans-serif;
 }
 
 :root { color-scheme: dark; }
 
-button, select, input, summary { outline-offset: 4px; }
+/* A practice take must survive a stray swipe: no pull-to-refresh, no double-tap zoom. */
+html, body { overscroll-behavior-y: contain; }
+button, select, input, summary { outline-offset: 4px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
-@media (min-width: 1024px) {
-  .circle-stage { container-type: size; }
-  .circle-disc { width: min(100cqw, 100cqh); }
+/* iOS zooms the page when a focused field has text under 16px. */
+@media (pointer: coarse) { select, input { font-size: 16px; } }
+
+/*
+ * App shell. One viewport, no page scroll, three zones.
+ * Phone and tablet: the chord being played on top, one zone at a time in the middle,
+ * transport and tabs in thumb reach at the bottom.
+ */
+.app-shell {
+  display: grid;
+  height: 100dvh;
+  overflow: hidden;
+  grid-template: "now" auto "pane" minmax(0, 1fr) "transport" auto "tabs" auto / minmax(0, 1fr);
 }
+.zone-now { grid-area: now; padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.zone-transport { grid-area: transport; }
+.zone-tabs { grid-area: tabs; padding-bottom: env(safe-area-inset-bottom); }
+.zone-setup, .zone-circle, .zone-review { grid-area: pane; min-height: 0; min-width: 0; }
+.zone-setup, .zone-review { overflow-y: auto; }
+.zone-now, .zone-transport, .zone-tabs, .zone-setup, .zone-review {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+.app-shell[data-tab="setup"] :is(.zone-circle, .zone-review),
+.app-shell[data-tab="play"] :is(.zone-setup, .zone-review),
+.app-shell[data-tab="review"] :is(.zone-setup, .zone-circle) { display: none; }
+
+/* Phone on its side: the zone on the left, everything you touch on the right. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-shell {
+    grid-template: "pane now" auto "pane transport" minmax(0, 1fr) "pane tabs" auto / minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .zone-transport { align-self: end; }
+}
+
+/* Desktop: all three zones at once, in task order. */
+@media (min-width: 1024px) {
+  .app-shell {
+    grid-template:
+      "setup transport review" auto
+      "setup now review" auto
+      "setup circle review" minmax(0, 1fr) / auto minmax(0, 1fr) 20rem;
+  }
+  .zone-setup { grid-area: setup; }
+  .zone-circle { grid-area: circle; }
+  .zone-review { grid-area: review; }
+  .zone-now { padding-top: 0.5rem; }
+  .zone-tabs { display: none; }
+  .app-shell[data-tab] :is(.zone-setup, .zone-review) { display: flex; }
+  .app-shell[data-tab] .zone-circle { display: flex; }
+}
+
+/* The circle always fits the space it is given, in either direction. */
+.circle-stage { container-type: size; }
+.circle-disc { width: min(100cqw, 100cqh, 560px); }
+
 /* Shows a soft edge at the bottom of a scrolling panel while more content is below.
    The first layer travels with the content and covers the cue at the end. */
 .scroll-cue {

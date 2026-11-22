@@ -6,8 +6,9 @@ import type { ChordQuality, NoteName } from '../../engine/chordData.types';
 // Outer ring is major, inner ring is relative minor. Radius is a percentage of the disc;
 // quality is carried by ring and label, not colour.
 const RINGS = [
-  { entries: CIRCLE_MAJOR, radius: 40, size: 'size-[12cqw] text-lg' },
-  { entries: CIRCLE_MINOR, radius: 29, size: 'size-[max(9cqw,2rem)] text-xs' },
+  // Sized so both rings stay tappable on a phone-width disc without touching each other.
+  { entries: CIRCLE_MAJOR, radius: 42, size: 'size-[12.5cqw] text-lg' },
+  { entries: CIRCLE_MINOR, radius: 28, size: 'size-[max(11.5cqw,2rem)] text-xs' },
 ];
 
 export default function CircleEngine() {
@@ -37,11 +38,11 @@ export default function CircleEngine() {
   }
 
   return (
-    <div className="circle-stage min-w-0 min-h-0 relative flex flex-col items-center justify-center p-4 lg:col-start-2 lg:row-start-2">
+    <div className="zone-circle circle-stage relative flex flex-col items-center justify-center m-3">
       {/* The Circle — aspect-ratio locked, scales to fit */}
       <div
-        className="circle-disc relative aspect-square w-full rounded-full border border-border-muted/30 flex items-center justify-center"
-        style={{ maxWidth: 560, containerType: 'inline-size' }}
+        className="circle-disc relative aspect-square rounded-full border border-border-muted/30 flex items-center justify-center"
+        style={{ containerType: 'inline-size' }}
       >
 
         {RINGS.map(({ entries, radius, size }) => entries.map((entry, i) => {

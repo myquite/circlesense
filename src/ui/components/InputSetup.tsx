@@ -69,13 +69,17 @@ export default function InputSetup() {
             onChange={selectDevice}
           />
           <Button disabled={busy} onClick={() => input.disconnect()}>Disconnect</Button>
-          <Button disabled={busy} onClick={() => use(other)}>Switch to {KIND_NAMES[other]}</Button>
+          {(other === 'mic' || midi.isSupported) && (
+            <Button disabled={busy} onClick={() => use(other)}>Switch to {KIND_NAMES[other]}</Button>
+          )}
         </> : <>
-          <Button disabled={busy} onClick={() => use('midi')}>Connect MIDI</Button>
+          {midi.isSupported && <Button disabled={busy} onClick={() => use('midi')}>Connect MIDI</Button>}
           <Button disabled={busy} onClick={() => use('mic')}>Connect microphone</Button>
         </>}
       </div>
       <p role="status" className="text-ink">{status}</p>
+      {/* Phones on iOS have no Web MIDI; say so instead of offering a button that can only fail. */}
+      {!midi.isSupported && <p className="text-ink-muted">MIDI is not available in this browser, so the microphone is the input here.</p>}
       {error && <p role="alert" className="text-amber-300">{error}</p>}
       {active && <p className="text-ink-muted">{active === 'mic'
         ? 'Microphone: play one note at a time and use headphones to keep accompaniment out of the mic. A stable pitch counts once; leave a short silence to repeat it. Fast notes may be missed.'

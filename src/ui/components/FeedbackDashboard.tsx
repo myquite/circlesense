@@ -37,7 +37,7 @@ export default function FeedbackDashboard() {
   const sessionDisplay = hasSessionNotes ? `${sessionAccuracy}%` : '--';
 
   return (
-    <aside aria-label="Review" className="scroll-cue flex flex-col gap-4 border-t border-border-muted p-4 lg:col-start-3 lg:row-start-1 lg:row-span-2 lg:border-t-0 lg:border-l lg:overflow-y-auto">
+    <aside aria-label="Review" className="zone-review scroll-cue flex flex-col gap-4 border-border-muted py-4 lg:border-l">
       <SectionHeading>Results</SectionHeading>
 
       {notice && (

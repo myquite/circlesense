@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 /** Minimum hit area for every control: 32px with a mouse, 44px on touch. */
-const hit = 'min-h-8 pointer-coarse:min-h-11';
+const hit = 'min-h-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11';
 const hitSquare = 'size-9 pointer-coarse:size-11';
 
 export function SectionHeading({ children, id, className = '' }: { children: ReactNode; id?: string; className?: string }) {
