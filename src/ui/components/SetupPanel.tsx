@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { EXERCISE_KINDS, buildExercise, formatChordLabel, matchExercise } from '../../engine/chordData';
+import { EXERCISES, EXERCISE_KINDS, buildExercise, formatChordLabel, matchExercise } from '../../engine/chordData';
 import type { ExerciseKind } from '../../engine/chordData';
 import type { PitchClass } from '../../engine/chordData.types';
 import { PC_TO_NOTE_NAME } from '../../engine/scaleData';
@@ -16,15 +16,9 @@ import AudioDebug from './AudioDebug';
 import { TARGET_NAMES } from '../labels';
 import { Button, IconButton, SectionHeading, Segmented, Select } from '../primitives';
 
-const PRESET_NAMES: Record<ExerciseKind, string> = {
-  'ii-v-i': 'ii–V–I',
-  turnaround: 'I–vi–ii–V',
-  blues: '12-bar blues',
-};
-
 const PITCH_CLASSES = Object.keys(PC_TO_NOTE_NAME).map(Number) as PitchClass[];
 
-const PRESET_OPTIONS = EXERCISE_KINDS.map((kind) => ({ value: kind, label: PRESET_NAMES[kind] }));
+const PRESET_OPTIONS = EXERCISE_KINDS.map((kind) => ({ value: kind, label: EXERCISES[kind].name, group: EXERCISES[kind].group }));
 const KEY_OPTIONS = PITCH_CLASSES.map((pc) => ({ value: pc, label: PC_TO_NOTE_NAME[pc] }));
 const TARGET_OPTIONS = (Object.keys(TARGET_NAMES) as PracticeTarget[]).map((value) => ({ value, label: TARGET_NAMES[value] }));
 const SHOW_DEBUG = new URLSearchParams(window.location.search).has('debug');
@@ -106,7 +100,14 @@ export default function SetupPanel() {
               )}
             </div>
             <Select label="Key" showLabel options={KEY_OPTIONS} value={tonic} onChange={(v) => changeKey(Number(v) as PitchClass)} />
-            <Segmented label="Preset" options={PRESET_OPTIONS} value={preset?.kind ?? null} onChange={loadPreset} />
+            <Select
+              label="Preset"
+              showLabel
+              options={PRESET_OPTIONS}
+              placeholder="Custom progression"
+              value={preset?.kind ?? ''}
+              onChange={(v) => loadPreset(v as ExerciseKind)}
+            />
             <div className="flex flex-wrap gap-1.5 min-h-12 bg-surface/50 border border-border-muted rounded-lg p-2">
               {progression.length === 0 ? (
                 <span className="text-xs text-ink-muted">Load a preset, or tap chords on the circle.</span>

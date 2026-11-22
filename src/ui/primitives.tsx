@@ -92,14 +92,18 @@ interface SelectProps<T extends string | number> {
   label: string;
   /** Show the label beside the control; otherwise it is only the accessible name. */
   showLabel?: boolean;
-  options: readonly { value: T; label: string }[];
+  /** Options sharing a `group` are shown under that heading. */
+  options: readonly { value: T; label: string; group?: string }[];
+  /** Shown, unselectable, when `value` is ''. */
+  placeholder?: string;
   value: T | '';
   onChange: (value: string) => void;
   disabled?: boolean;
   className?: string;
 }
 
-export function Select<T extends string | number>({ label, showLabel, options, value, onChange, disabled, className = '' }: SelectProps<T>) {
+export function Select<T extends string | number>({ label, showLabel, options, placeholder, value, onChange, disabled, className = '' }: SelectProps<T>) {
+  const groups = [...new Set(options.map((option) => option.group))];
   const select = (
     <select
       aria-label={showLabel ? undefined : label}
@@ -108,7 +112,13 @@ export function Select<T extends string | number>({ label, showLabel, options, v
       value={value}
       onChange={(e) => onChange(e.target.value)}
     >
-      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      {placeholder && value === '' && <option value="" disabled>{placeholder}</option>}
+      {groups.map((group) => {
+        const items = options
+          .filter((option) => option.group === group)
+          .map((option) => <option key={option.value} value={option.value}>{option.label}</option>);
+        return group ? <optgroup key={group} label={group}>{items}</optgroup> : items;
+      })}
     </select>
   );
   if (!showLabel) return select;

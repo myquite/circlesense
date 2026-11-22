@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Conductor } from '../src/audio/conductor';
 import { PlaybackEngine } from '../src/audio/playbackEngine';
 import { Judge } from '../src/engine/judge';
-import { buildExercise, matchExercise, toggleCircleChord, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
+import { buildExercise, matchExercise, EXERCISE_KINDS, toggleCircleChord, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
 import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
@@ -382,4 +382,20 @@ test('a circle node toggles its chord: unlit adds, lit removes every chord it st
   const blues = toggleCircleChord(buildExercise(0, 'blues'), 'C', 'C', 'major');
   assert.equal(blues.removed.length, 7); // seven of the twelve bars are the I chord
   assert.ok(blues.next.every((c) => c.root !== 'C'));
+});
+
+test('blues presets spell the expected changes and every preset is recognised in every key', () => {
+  const labels = (kind: Parameters<typeof buildExercise>[1], tonic = 0) => buildExercise(tonic as 0, kind).map((c) => c.label);
+  assert.deepEqual(labels('blues-quick'), ['C7', 'F7', 'C7', 'C7', 'F7', 'F7', 'C7', 'C7', 'G7', 'F7', 'C7', 'G7']);
+  assert.deepEqual(labels('blues-jazz', 5), ['F7', 'Bb7', 'F7', 'F7', 'Bb7', 'Bb7', 'F7', 'D7', 'Gm7', 'C7', 'F7', 'C7']);
+  assert.deepEqual(labels('blues-minor'), ['Cm7', 'Cm7', 'Cm7', 'Cm7', 'Fm7', 'Fm7', 'Cm7', 'Cm7', 'Ab7', 'G7', 'Cm7', 'G7']);
+  assert.deepEqual(labels('blues-i-iv'), ['C7', 'F7']);
+  assert.deepEqual(labels('blues-v-iv-i'), ['G7', 'F7', 'C7']);
+  assert.deepEqual(labels('blues-i-v', 7), ['G7', 'D7']);
+  // No two preset-and-key pairs produce the same progression, so the active preset is never misreported.
+  for (const kind of EXERCISE_KINDS) {
+    for (let tonic = 0; tonic < 12; tonic++) {
+      assert.deepEqual(matchExercise(buildExercise(tonic as 0, kind)), { tonic, kind });
+    }
+  }
 });

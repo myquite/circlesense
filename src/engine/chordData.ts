@@ -109,8 +109,33 @@ export const CIRCLE_MINOR: { displayName: string; root: NoteName; quality: Chord
   { displayName: 'Dm',  root: 'D',  quality: 'minor' },
 ];
 
-export const EXERCISE_KINDS = ['ii-v-i', 'turnaround', 'blues'] as const;
-export type ExerciseKind = typeof EXERCISE_KINDS[number];
+type Step = [semitonesAboveTonic: number, quality: ChordQuality];
+const I7: Step = [0, 'dominant7'];
+const IV7: Step = [5, 'dominant7'];
+const V7: Step = [7, 'dominant7'];
+const Im7: Step = [0, 'minor7'];
+const IVm7: Step = [5, 'minor7'];
+
+/**
+ * Functional exercises, one chord per step, written relative to the tonic so they
+ * transpose to any key. Blues forms are twelve steps; transition loops isolate one
+ * change from the form so it can be repeated.
+ */
+export const EXERCISES = {
+  'ii-v-i': { name: 'ii–V–I', group: 'Jazz', steps: [[2, 'minor7'], V7, [0, 'major7']] },
+  turnaround: { name: 'I–vi–ii–V', group: 'Jazz', steps: [[0, 'major7'], [9, 'minor7'], [2, 'minor7'], V7] },
+  blues: { name: '12-bar blues', group: 'Blues forms', steps: [I7, I7, I7, I7, IV7, IV7, I7, I7, V7, IV7, I7, V7] },
+  'blues-quick': { name: 'Quick-change blues', group: 'Blues forms', steps: [I7, IV7, I7, I7, IV7, IV7, I7, I7, V7, IV7, I7, V7] },
+  // One chord per bar: VI7 leads to the ii–V in bars 9–10. Diminished passing chords are left out.
+  'blues-jazz': { name: 'Jazz blues', group: 'Blues forms', steps: [I7, IV7, I7, I7, IV7, IV7, I7, [9, 'dominant7'], [2, 'minor7'], V7, I7, V7] },
+  'blues-minor': { name: 'Minor blues', group: 'Blues forms', steps: [Im7, Im7, Im7, Im7, IVm7, IVm7, Im7, Im7, [8, 'dominant7'], V7, Im7, V7] },
+  'blues-i-iv': { name: 'I7–IV7 (bars 4–5)', group: 'Blues transitions', steps: [I7, IV7] },
+  'blues-v-iv-i': { name: 'V7–IV7–I7 (bars 9–11)', group: 'Blues transitions', steps: [V7, IV7, I7] },
+  'blues-i-v': { name: 'I7–V7 turnaround (bars 11–12)', group: 'Blues transitions', steps: [I7, V7] },
+} satisfies Record<string, { name: string; group: string; steps: Step[] }>;
+
+export type ExerciseKind = keyof typeof EXERCISES;
+export const EXERCISE_KINDS = Object.keys(EXERCISES) as ExerciseKind[];
 
 /** Find the preset and key a progression came from, if it is still an unedited preset. */
 export function matchExercise(progression: ChordDefinition[]): { tonic: PitchClass; kind: ExerciseKind } | null {
@@ -129,13 +154,7 @@ export function matchExercise(progression: ChordDefinition[]): { tonic: PitchCla
 
 /** Transpose a functional exercise to a chosen tonic. */
 export function buildExercise(tonic: PitchClass, kind: ExerciseKind): ChordDefinition[] {
-  const steps: [number, ChordQuality][] = kind === 'ii-v-i'
-    ? [[2, 'minor7'], [7, 'dominant7'], [0, 'major7']]
-    : kind === 'turnaround'
-      ? [[0, 'major7'], [9, 'minor7'], [2, 'minor7'], [7, 'dominant7']]
-      : [[0, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'],
-         [5, 'dominant7'], [5, 'dominant7'], [0, 'dominant7'], [0, 'dominant7'],
-         [7, 'dominant7'], [5, 'dominant7'], [0, 'dominant7'], [7, 'dominant7']];
+  const steps: Step[] = EXERCISES[kind].steps;
   return steps.map(([interval, quality]) => {
     const root = PC_TO_NOTE[((tonic + interval) % 12) as PitchClass];
     const displayRoot = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'][NOTE_TO_PC[root]];
