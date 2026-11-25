@@ -1,7 +1,7 @@
 import { useConductor } from '../../audio/useConductor';
 import { isCounting as isTransportCounting } from '../../audio/conductor.types';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
-import { CIRCLE_MAJOR, CIRCLE_MINOR, formatChordLabel, matchesCircleEntry, toggleCircleChord } from '../../engine/chordData';
+import { CIRCLE_MAJOR, CIRCLE_MINOR, formatChordLabel, matchesCircleEntry, selectAllCircleChords, toggleCircleChord } from '../../engine/chordData';
 import { useProgressionEdits } from '../useProgressionEdits';
 import { Button } from '../primitives';
 import type { ChordQuality, NoteName } from '../../engine/chordData.types';
@@ -40,6 +40,19 @@ export default function CircleEngine() {
     }
   }
 
+  const allSelected = RINGS.every(({ entries }) => entries.every((entry) => isInProgression(entry.root, entry.quality)));
+
+  function selectAll() {
+    if (locked) return;
+    const next = selectAllCircleChords(progression);
+    replaceProgression(next, `Added ${next.length - progression.length} chords.`);
+  }
+
+  function deselectAll() {
+    if (locked) return;
+    replaceProgression([], 'Progression cleared.');
+  }
+
   function isInProgression(root: NoteName, quality: ChordQuality): boolean {
     return progression.some((chord) => matchesCircleEntry(chord, root, quality));
   }
@@ -50,6 +63,22 @@ export default function CircleEngine() {
 
   return (
     <div className="zone-circle flex flex-col">
+      <div className="flex justify-end gap-1 px-4 pt-2">
+        <Button
+          disabled={locked || allSelected}
+          title={locked ? 'Pause or stop to edit the progression' : 'Add every circle chord to the progression'}
+          onClick={selectAll}
+        >
+          Select all
+        </Button>
+        <Button
+          disabled={locked || progression.length === 0}
+          title={locked ? 'Pause or stop to edit the progression' : 'Remove every chord from the progression'}
+          onClick={deselectAll}
+        >
+          Deselect all
+        </Button>
+      </div>
       <div className="circle-stage relative m-3 flex min-h-0 flex-1 items-center justify-center">
       {/* The Circle — aspect-ratio locked, scales to fit */}
       <div

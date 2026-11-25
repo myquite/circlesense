@@ -209,3 +209,14 @@ export function toggleCircleChord(
   }
   return { next: [...progression, makeChordDefinition(displayName, root, quality)], removed };
 }
+
+/**
+ * Lights every circle node: appends the triad for each node not already in the
+ * progression (majors, then minors, in circle order), keeping existing chords as they are.
+ */
+export function selectAllCircleChords(progression: ChordDefinition[]): ChordDefinition[] {
+  const missing = [...CIRCLE_MAJOR, ...CIRCLE_MINOR].filter(
+    (entry) => !progression.some((chord) => matchesCircleEntry(chord, entry.root, entry.quality)),
+  );
+  return [...progression, ...missing.map((entry) => makeChordDefinition(entry.displayName, entry.root, entry.quality))];
+}

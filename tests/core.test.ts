@@ -4,7 +4,7 @@ import { Conductor } from '../src/audio/conductor';
 import { TRANSPORT_TRANSITIONS, canTransition, takePhase, type TransportState } from '../src/audio/conductor.types';
 import { PlaybackEngine } from '../src/audio/playbackEngine';
 import { Judge } from '../src/engine/judge';
-import { buildExercise, matchExercise, EXERCISE_KINDS, toggleCircleChord, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
+import { buildExercise, matchExercise, EXERCISE_KINDS, toggleCircleChord, selectAllCircleChords, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
 import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
@@ -397,6 +397,16 @@ test('a circle node toggles its chord: unlit adds, lit removes every chord it st
   const blues = toggleCircleChord(buildExercise(0, 'blues'), 'C', 'C', 'major');
   assert.equal(blues.removed.length, 7); // seven of the twelve bars are the I chord
   assert.ok(blues.next.every((c) => c.root !== 'C'));
+});
+
+test('select all lights every circle node once and keeps existing chords', () => {
+  const start = buildExercise(0, 'ii-v-i'); // Dm7 G7 Cmaj7 already light Dm, G and C
+  const all = selectAllCircleChords(start);
+  assert.equal(all.length, 24);
+  assert.deepEqual(all.slice(0, 3).map((c) => c.label), ['Dm7', 'G7', 'Cmaj7']);
+  assert.equal(new Set(all.map((c) => `${c.root}:${c.quality.startsWith('minor')}`)).size, 24);
+  assert.deepEqual(selectAllCircleChords(all), all);
+  assert.equal(selectAllCircleChords([]).length, 24);
 });
 
 test('blues presets spell the expected changes and every preset is recognised in every key', () => {

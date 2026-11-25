@@ -29,7 +29,7 @@ export function Button({ variant = 'default', className = '', ...props }: Button
   return (
     <button
       {...props}
-      className={`${hit} inline-flex items-center justify-center gap-1 rounded-lg text-xs font-bold transition-colors ${BUTTON_VARIANTS[variant]} ${className}`}
+      className={`${hit} inline-flex items-center justify-center gap-1 rounded-lg text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${BUTTON_VARIANTS[variant]} ${className}`}
     />
   );
 }
