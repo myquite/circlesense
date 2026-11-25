@@ -21,6 +21,8 @@
 }
 
 :root { color-scheme: dark; }
+/* Anything the shell does not cover (rubber-banding, a home-screen viewport iOS sizes short) matches the app. */
+html, body { background-color: var(--color-background-dark); }
 
 /* A practice take must survive a stray swipe: no pull-to-refresh, no double-tap zoom. */
 html, body { overscroll-behavior-y: contain; }
@@ -36,11 +38,18 @@ button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-al
  */
 .app-shell {
   display: grid;
-  height: 100dvh;
+  /* Pinned to the edges rather than sized in viewport units: launched from the home screen
+     with a translucent status bar, iOS reports 100dvh short of the screen and leaves a gap. */
+  position: fixed;
+  inset: 0;
   overflow: hidden;
   grid-template: "now" auto "pane" minmax(0, 1fr) "transport" auto "tabs" auto / minmax(0, 1fr);
 }
-.zone-now { grid-area: now; padding-top: max(0.5rem, env(safe-area-inset-top)); }
+.zone-now {
+  grid-area: now;
+  /* The status bar's blur fades out below the safe area, so on notched phones the chord starts clear of it. */
+  padding-top: max(0.5rem, calc(env(safe-area-inset-top) + 0.75rem));
+}
 .zone-transport { grid-area: transport; }
 .zone-tabs { grid-area: tabs; padding-bottom: env(safe-area-inset-bottom); }
 .zone-setup, .zone-circle, .zone-review { grid-area: pane; min-height: 0; min-width: 0; }
