@@ -137,29 +137,57 @@ export const EXERCISES = {
 export type ExerciseKind = keyof typeof EXERCISES;
 export const EXERCISE_KINDS = Object.keys(EXERCISES) as ExerciseKind[];
 
-/** Find the preset and key a progression came from, if it is still an unedited preset. */
-export function matchExercise(progression: ChordDefinition[]): { tonic: PitchClass; kind: ExerciseKind } | null {
+/**
+ * How a preset moves between keys: each pass through the preset shifts the tonic by
+ * `step` semitones, for `keys` passes, so the loop ends back where it started.
+ */
+export const KEY_MOVEMENTS = {
+  none: { name: 'Stay in key', step: 0, keys: 1 },
+  fourths: { name: 'Around the circle (up 4ths)', step: 5, keys: 12 },
+  'whole-down': { name: 'Down in whole steps', step: 10, keys: 6 },
+  'half-down': { name: 'Down in half steps', step: 11, keys: 12 },
+  'minor-thirds': { name: 'Up in minor 3rds', step: 3, keys: 4 },
+} satisfies Record<string, { name: string; step: number; keys: number }>;
+
+export type KeyMovement = keyof typeof KEY_MOVEMENTS;
+export const KEY_MOVEMENT_KINDS = Object.keys(KEY_MOVEMENTS) as KeyMovement[];
+
+/** The keys a moving preset passes through, starting from `tonic`. */
+export function movementKeys(tonic: PitchClass, movement: KeyMovement): PitchClass[] {
+  const { step, keys } = KEY_MOVEMENTS[movement];
+  return Array.from({ length: keys }, (_, i) => ((tonic + i * step) % 12) as PitchClass);
+}
+
+/** Find the preset, starting key and key movement a progression came from, if it is still unedited. */
+export function matchExercise(progression: ChordDefinition[]): { tonic: PitchClass; kind: ExerciseKind; movement: KeyMovement } | null {
   if (progression.length === 0) return null;
-  for (const kind of EXERCISE_KINDS) {
-    for (let tonic = 0; tonic < 12; tonic++) {
-      const exercise = buildExercise(tonic as PitchClass, kind);
-      if (exercise.length === progression.length && exercise.every((chord, i) =>
-        chord.rootPitchClass === progression[i].rootPitchClass && chord.quality === progression[i].quality)) {
-        return { tonic: tonic as PitchClass, kind };
+  for (const movement of KEY_MOVEMENT_KINDS) {
+    for (const kind of EXERCISE_KINDS) {
+      if (EXERCISES[kind].steps.length * KEY_MOVEMENTS[movement].keys !== progression.length) continue;
+      for (let tonic = 0; tonic < 12; tonic++) {
+        const exercise = buildExercise(tonic as PitchClass, kind, movement);
+        if (exercise.every((chord, i) =>
+          chord.rootPitchClass === progression[i].rootPitchClass && chord.quality === progression[i].quality)) {
+          return { tonic: tonic as PitchClass, kind, movement };
+        }
       }
     }
   }
   return null;
 }
 
-/** Transpose a functional exercise to a chosen tonic. */
-export function buildExercise(tonic: PitchClass, kind: ExerciseKind): ChordDefinition[] {
+const MAJOR_ROOT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const MINOR_ROOT_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'G#', 'A', 'Bb', 'B'];
+
+/** Transpose a functional exercise to a chosen tonic, repeating it through each key of a movement. */
+export function buildExercise(tonic: PitchClass, kind: ExerciseKind, movement: KeyMovement = 'none'): ChordDefinition[] {
   const steps: Step[] = EXERCISES[kind].steps;
-  return steps.map(([interval, quality]) => {
-    const root = PC_TO_NOTE[((tonic + interval) % 12) as PitchClass];
-    const displayRoot = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'][NOTE_TO_PC[root]];
+  return movementKeys(tonic, movement).flatMap((key) => steps.map(([interval, quality]) => {
+    const root = PC_TO_NOTE[((key + interval) % 12) as PitchClass];
+    // Minor chords take the circle's inner-ring spellings (C#m, G#m), the rest its outer ring (Db, Ab).
+    const displayRoot = (quality.startsWith('minor') ? MINOR_ROOT_NAMES : MAJOR_ROOT_NAMES)[NOTE_TO_PC[root]];
     return makeChordDefinition(makeChordLabel(displayRoot, quality), root, quality);
-  });
+  }));
 }
 
 /** Spell stacked thirds from the displayed root, including flat keys. */
@@ -219,4 +247,33 @@ export function selectAllCircleChords(progression: ChordDefinition[]): ChordDefi
     (entry) => !progression.some((chord) => matchesCircleEntry(chord, entry.root, entry.quality)),
   );
   return [...progression, ...missing.map((entry) => makeChordDefinition(entry.displayName, entry.root, entry.quality))];
+}
+
+/**
+ * Where a chord sits in a preset that moves through keys: the key it belongs to (minor
+ * presets marked "m") and which pass of the cycle it is. Null for one-key presets and
+ * custom progressions, where the key never changes or is unknown.
+ */
+export function keyAt(
+  progression: ChordDefinition[],
+  index: number,
+  preset = matchExercise(progression),
+): { name: string; pass: number; passes: number } | null {
+  if (!preset || preset.movement === 'none' || index < 0 || index >= progression.length) return null;
+  const steps: Step[] = EXERCISES[preset.kind].steps;
+  const keys = movementKeys(preset.tonic, preset.movement);
+  const pass = Math.floor(index / steps.length);
+  const minor = steps.some(([interval, quality]) => interval === 0 && quality.startsWith('minor'));
+  const root = (minor ? MINOR_ROOT_NAMES : MAJOR_ROOT_NAMES)[keys[pass]];
+  return { name: formatChordLabel(root + (minor ? 'm' : '')), pass: pass + 1, passes: keys.length };
+}
+
+/**
+ * How many chords belong together when playback is random. In a preset that moves through
+ * keys, each pass is one phrase (a whole ii–V–I), so random order jumps between keys rather
+ * than between chords. Everything else is shuffled one chord at a time.
+ */
+export function phraseLength(progression: ChordDefinition[]): number {
+  const preset = matchExercise(progression);
+  return preset && preset.movement !== 'none' ? EXERCISES[preset.kind].steps.length : 1;
 }

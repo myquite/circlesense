@@ -4,7 +4,7 @@ import { Conductor } from '../src/audio/conductor';
 import { TRANSPORT_TRANSITIONS, canTransition, takePhase, type TransportState } from '../src/audio/conductor.types';
 import { PlaybackEngine } from '../src/audio/playbackEngine';
 import { Judge } from '../src/engine/judge';
-import { buildExercise, matchExercise, EXERCISE_KINDS, toggleCircleChord, selectAllCircleChords, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
+import { buildExercise, matchExercise, EXERCISE_KINDS, KEY_MOVEMENT_KINDS, keyAt, toggleCircleChord, selectAllCircleChords, buildVoicing, chordToneNames, formatChordLabel, makeChordDefinition, spellPitchClass } from '../src/engine/chordData';
 import { NoteGate } from '../src/input/noteGate';
 import { yinDetect, frequencyToPitchClass, computeRMS } from '../src/input/pitchDetector';
 import { MidiInput } from '../src/input/midiInput';
@@ -273,8 +273,8 @@ test('detected notes are spelled the way the current chord spells them', (t) => 
 });
 
 test('an unedited preset is recognised with its key; edited progressions are not', () => {
-  assert.deepEqual(matchExercise(buildExercise(5, 'turnaround')), { tonic: 5, kind: 'turnaround' });
-  assert.deepEqual(matchExercise(buildExercise(10, 'blues')), { tonic: 10, kind: 'blues' });
+  assert.deepEqual(matchExercise(buildExercise(5, 'turnaround')), { tonic: 5, kind: 'turnaround', movement: 'none' });
+  assert.deepEqual(matchExercise(buildExercise(10, 'blues')), { tonic: 10, kind: 'blues', movement: 'none' });
   assert.equal(matchExercise(buildExercise(0, 'ii-v-i').slice(1)), null);
   assert.equal(matchExercise([]), null);
 });
@@ -409,6 +409,59 @@ test('select all lights every circle node once and keeps existing chords', () =>
   assert.equal(selectAllCircleChords([]).length, 24);
 });
 
+test('a preset moves through keys and is recognised with its movement', () => {
+  const labels = (movement: Parameters<typeof buildExercise>[2]) => buildExercise(0, 'ii-v-i', movement).map((c) => c.label);
+  assert.deepEqual(labels('fourths').slice(0, 9), ['Dm7', 'G7', 'Cmaj7', 'Gm7', 'C7', 'Fmaj7', 'Cm7', 'F7', 'Bbmaj7']);
+  assert.equal(labels('fourths').length, 36);
+  assert.deepEqual(labels('whole-down').slice(3, 6), ['Cm7', 'F7', 'Bbmaj7']);
+  assert.deepEqual(labels('half-down').slice(3, 6), ['C#m7', 'F#7', 'Bmaj7']);
+  assert.deepEqual(labels('minor-thirds').filter((_, i) => i % 3 === 2), ['Cmaj7', 'Ebmaj7', 'F#maj7', 'Amaj7']);
+  assert.deepEqual(buildExercise(0, 'ii-v-i', 'none'), buildExercise(0, 'ii-v-i'));
+  for (const movement of KEY_MOVEMENT_KINDS) {
+    for (const kind of EXERCISE_KINDS) {
+      assert.deepEqual(matchExercise(buildExercise(7, kind, movement)), { tonic: 7, kind, movement });
+    }
+  }
+});
+
+test('the key label follows the cycle and stays off for one-key and custom progressions', () => {
+  const cycle = buildExercise(0, 'ii-v-i', 'fourths');
+  assert.deepEqual(keyAt(cycle, 0), { name: 'C', pass: 1, passes: 12 });
+  assert.deepEqual(keyAt(cycle, 5), { name: 'F', pass: 2, passes: 12 });
+  assert.deepEqual(keyAt(cycle, 8), { name: 'B♭', pass: 3, passes: 12 });
+  assert.equal(keyAt(cycle, 36), null);
+  assert.deepEqual(keyAt(buildExercise(1, 'blues-minor', 'minor-thirds'), 0), { name: 'C♯m', pass: 1, passes: 4 });
+  assert.equal(keyAt(buildExercise(0, 'ii-v-i'), 0), null);
+  assert.equal(keyAt(cycle.slice(1), 0), null);
+});
+
+test('random order in a key cycle keeps each ii–V–I whole and jumps to a different key', (t) => {
+  const { conductor, playback, advance } = harness(t);
+  playback.setProgression(buildExercise(0, 'ii-v-i', 'fourths'));
+  playback.setPlaybackMode('random');
+  conductor.play();
+  const played: number[] = [];
+  for (let bar = 0; bar < 30; bar++) {
+    advance(2100 + bar * 2000);
+    played.push(playback.getSnapshot().chordIndex);
+  }
+  assert.equal(played[0], 0); // starts on the ii of the chosen key
+  for (let i = 0; i < played.length; i += 3) {
+    const start = played[i];
+    assert.equal(start % 3, 0);
+    assert.deepEqual(played.slice(i, i + 3), [start, start + 1, start + 2]);
+    if (i > 0) assert.notEqual(start, played[i - 3]);
+  }
+  // Inside a phrase the next chord is known; at its end the next key is not.
+  assert.equal(playback.getSnapshot().nextChord, null);
+  // Single-chord shuffling is unchanged for one-key presets.
+  playback.setProgression(buildExercise(0, 'blues'));
+  playback.setPlaybackMode('random');
+  conductor.play();
+  advance(200_000); advance(202_100);
+  assert.equal(playback.getSnapshot().nextChord, null);
+});
+
 test('blues presets spell the expected changes and every preset is recognised in every key', () => {
   const labels = (kind: Parameters<typeof buildExercise>[1], tonic = 0) => buildExercise(tonic as 0, kind).map((c) => c.label);
   assert.deepEqual(labels('blues-quick'), ['C7', 'F7', 'C7', 'C7', 'F7', 'F7', 'C7', 'C7', 'G7', 'F7', 'C7', 'G7']);
@@ -420,7 +473,7 @@ test('blues presets spell the expected changes and every preset is recognised in
   // No two preset-and-key pairs produce the same progression, so the active preset is never misreported.
   for (const kind of EXERCISE_KINDS) {
     for (let tonic = 0; tonic < 12; tonic++) {
-      assert.deepEqual(matchExercise(buildExercise(tonic as 0, kind)), { tonic, kind });
+      assert.deepEqual(matchExercise(buildExercise(tonic as 0, kind)), { tonic, kind, movement: 'none' });
     }
   }
 });

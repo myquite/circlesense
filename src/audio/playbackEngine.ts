@@ -3,7 +3,7 @@ import type { BarEvent, TransportEvent } from './conductor.types';
 import { takePhase } from './conductor.types';
 import type { PlaybackEngineSnapshot, ActiveVoice, PlaybackDirection, PlaybackMode, ToneType } from './playbackEngine.types';
 import type { ChordDefinition } from '../engine/chordData.types';
-import { buildVoicing } from '../engine/chordData';
+import { buildVoicing, phraseLength } from '../engine/chordData';
 
 const ATTACK_SEC = 0.01;
 const RELEASE_SEC = 0.05;
@@ -14,6 +14,8 @@ export class PlaybackEngine {
   private masterGain: GainNode;
 
   private progression: ChordDefinition[] = [];
+  /** Chords that stay together in random order (a whole ii–V–I in a key cycle); 1 shuffles single chords. */
+  private phrase = 1;
   /** Index of the most recently scheduled chord (may be ahead of audible time). */
   private playingIndex = 0;
   private displayIndex = 0;
@@ -122,11 +124,19 @@ export class PlaybackEngine {
     if (len <= 1) return;
 
     if (this.playbackMode === 'random') {
+      const withinPhrase = this.nextInPhrase(this.playingIndex);
+      if (withinPhrase !== null) {
+        this.playingIndex = withinPhrase;
+        return;
+      }
+      // Jump to the start of a different phrase: a new key in a cycle, a new chord otherwise.
+      const phrases = Math.floor(len / this.phrase);
+      const current = Math.floor(this.playingIndex / this.phrase);
       let next: number;
       do {
-        next = Math.floor(Math.random() * len);
-      } while (next === this.playingIndex);
-      this.playingIndex = next;
+        next = Math.floor(Math.random() * phrases);
+      } while (next === current);
+      this.playingIndex = next * this.phrase;
     } else {
       const step = this.direction === 'clockwise' ? 1 : -1;
       this.playingIndex = ((this.playingIndex + step) + len) % len;
@@ -138,10 +148,15 @@ export class PlaybackEngine {
     if (len <= 1) return 0;
 
     if (this.playbackMode === 'random') {
-      return index; // can't predict random
+      return this.nextInPhrase(index) ?? index; // the jump to a new phrase can't be predicted
     }
     const step = this.direction === 'clockwise' ? 1 : -1;
     return ((index + step) + len) % len;
+  }
+
+  /** In random order, the next chord inside the current phrase, or null at the phrase's end. */
+  private nextInPhrase(index: number): number | null {
+    return index % this.phrase < this.phrase - 1 ? index + 1 : null;
   }
 
   // --- Tone Synthesis ---
@@ -359,12 +374,14 @@ export class PlaybackEngine {
   setProgression(chords: ChordDefinition[]): void {
     this.prepareEdit();
     this.progression = [...chords];
+    this.phrase = phraseLength(this.progression);
     this.notifySnapshot();
   }
 
   addChord(chord: ChordDefinition): void {
     this.prepareEdit();
     this.progression.push(chord);
+    this.phrase = phraseLength(this.progression);
     this.notifySnapshot();
   }
 
@@ -372,12 +389,14 @@ export class PlaybackEngine {
     this.prepareEdit();
     if (index < 0 || index >= this.progression.length) return;
     this.progression.splice(index, 1);
+    this.phrase = phraseLength(this.progression);
     this.notifySnapshot();
   }
 
   clearProgression(): void {
     this.prepareEdit();
     this.progression = [];
+    this.phrase = 1;
     this.notifySnapshot();
   }
 
@@ -429,7 +448,9 @@ export class PlaybackEngine {
 
     return {
       currentChord: len > 0 ? (this.progression[this.displayIndex] ?? null) : null,
-      nextChord: len > 0 && this.playbackMode !== 'random' ? (this.progression[this.nextIndex(this.displayIndex)] ?? null) : null,
+      nextChord: len > 0 && (this.playbackMode !== 'random' || this.nextInPhrase(this.displayIndex) !== null)
+        ? (this.progression[this.nextIndex(this.displayIndex)] ?? null)
+        : null,
       chordIndex: this.displayIndex,
       isActive: this.phase !== 'idle',
       direction: this.direction,

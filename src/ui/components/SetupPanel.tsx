@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { EXERCISES, EXERCISE_KINDS, buildExercise, formatChordLabel, matchExercise } from '../../engine/chordData';
-import type { ExerciseKind } from '../../engine/chordData';
+import { EXERCISES, EXERCISE_KINDS, KEY_MOVEMENTS, KEY_MOVEMENT_KINDS, buildExercise, formatChordLabel, matchExercise, movementKeys } from '../../engine/chordData';
+import type { ExerciseKind, KeyMovement } from '../../engine/chordData';
 import type { PitchClass } from '../../engine/chordData.types';
 import { PC_TO_NOTE_NAME } from '../../engine/scaleData';
 import { useJudge } from '../../engine/useJudge';
@@ -27,6 +27,11 @@ const BAR_OPTIONS = ([1, 2, 3, 4] as const).map((n) => ({ value: n, label: Strin
 const MODE_OPTIONS: { value: PlaybackMode; label: string }[] = [
   { value: 'sequential', label: 'In order' },
   { value: 'random', label: 'Random' },
+];
+// In a key cycle, random keeps each pass of the preset intact and jumps between keys.
+const CYCLE_MODE_OPTIONS: { value: PlaybackMode; label: string }[] = [
+  { value: 'sequential', label: 'In order' },
+  { value: 'random', label: 'Random key' },
 ];
 const DIRECTION_OPTIONS: { value: PlaybackDirection; label: string }[] = [
   { value: 'clockwise', label: 'Forward' },
@@ -55,18 +60,33 @@ export default function SetupPanel() {
   // correct after a reload and stop claiming a preset once it has been edited.
   const preset = useMemo(() => matchExercise(progression), [progression]);
   const tonic = preset?.tonic ?? manualTonic;
+  const movement = preset?.movement ?? 'none';
+  // Each option names the first few keys it visits from the current key, so the choice is concrete.
+  const movementOptions = useMemo(() => KEY_MOVEMENT_KINDS.map((kind) => {
+    const keys = movementKeys(tonic, kind).map((pc) => formatChordLabel(PC_TO_NOTE_NAME[pc]));
+    return { value: kind, label: kind === 'none' ? KEY_MOVEMENTS[kind].name : `${KEY_MOVEMENTS[kind].name}: ${keys.slice(0, 3).join(', ')}…` };
+  }), [tonic]);
   const activeIndex = transport === 'stopped' ? -1 : chordIndex;
 
   function loadPreset(kind: ExerciseKind) {
     if (preset?.kind === kind) return;
-    replaceProgression(buildExercise(tonic, kind), 'Progression replaced.');
+    replaceProgression(buildExercise(tonic, kind, movement), 'Progression replaced.');
     setPlaybackMode('sequential');
     setDirection('clockwise');
   }
 
   function changeKey(next: PitchClass) {
     setManualTonic(next);
-    if (preset) setProgression(buildExercise(next, preset.kind));
+    if (preset) setProgression(buildExercise(next, preset.kind, preset.movement));
+  }
+
+  function changeMovement(next: KeyMovement) {
+    if (!preset || next === preset.movement) return;
+    const keys = KEY_MOVEMENTS[next].keys;
+    replaceProgression(
+      buildExercise(tonic, preset.kind, next),
+      keys === 1 ? `Back to one key.` : `Moving through ${keys} keys.`,
+    );
   }
 
   const isRunning = isTransportRunning(transport);
@@ -100,7 +120,7 @@ export default function SetupPanel() {
                 <Button variant="danger" onClick={() => replaceProgression([], 'Progression cleared.')}>Clear</Button>
               )}
             </div>
-            <Select label="Key" showLabel options={KEY_OPTIONS} value={tonic} onChange={(v) => changeKey(Number(v) as PitchClass)} />
+            <Select label={movement === 'none' ? 'Key' : 'Start key'} showLabel options={KEY_OPTIONS} value={tonic} onChange={(v) => changeKey(Number(v) as PitchClass)} />
             <Select
               label="Preset"
               showLabel
@@ -109,6 +129,9 @@ export default function SetupPanel() {
               value={preset?.kind ?? ''}
               onChange={(v) => loadPreset(v as ExerciseKind)}
             />
+            {preset && (
+              <Select label="Keys" showLabel options={movementOptions} value={movement} onChange={(v) => changeMovement(v as KeyMovement)} />
+            )}
             <div className="flex flex-wrap gap-1.5 min-h-12 bg-surface/50 border border-border-muted rounded-lg p-2">
               {progression.length === 0 ? (
                 <span className="text-xs text-ink-muted">Load a preset, or tap chords on the circle.</span>
@@ -139,7 +162,12 @@ export default function SetupPanel() {
               </p>
             )}
             <Field label="Chord order">
-              <Segmented label="Chord order" options={MODE_OPTIONS} value={playbackMode} onChange={setPlaybackMode} />
+              <Segmented
+                label="Chord order"
+                options={movement === 'none' ? MODE_OPTIONS : CYCLE_MODE_OPTIONS}
+                value={playbackMode}
+                onChange={setPlaybackMode}
+              />
             </Field>
             {playbackMode === 'sequential' && (
               <Field label="Direction">
@@ -180,6 +208,7 @@ export default function SetupPanel() {
               <li>Space plays or pauses. Esc stops.</li>
               <li>Pause to change tempo or bars per chord. Resume counts you back in at the start of the current chord.</li>
               <li>Changing the target, the input, or pressing play after a stop starts a new take. The one before stays visible as “Previous take”.</li>
+              <li>Keys repeats a preset through a cycle of keys, starting from the chosen key and ending back on it. Random key plays each pass whole, then jumps to a different key.</li>
               <li>Tap a chord on the circle to add it; tap a lit chord to remove it. Editing stops playback, and the circle is locked while chords are playing.</li>
             </ul>
           </details>

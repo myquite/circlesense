@@ -3,7 +3,7 @@ import { useConductor } from '../../audio/useConductor';
 import { isCounting as isTransportCounting, type TransportState } from '../../audio/conductor.types';
 import { usePlaybackEngine } from '../../audio/usePlaybackEngine';
 import { useJudge } from '../../engine/useJudge';
-import { buildVoicing, chordToneNames, formatChordLabel, spellPitchClass } from '../../engine/chordData';
+import { buildVoicing, chordToneNames, formatChordLabel, keyAt, spellPitchClass } from '../../engine/chordData';
 import { useMidiInput } from '../../input/useMidiInput';
 import { useMicInput } from '../../input/useMicInput';
 import { useTransportShortcuts } from '../useTransportShortcuts';
@@ -30,7 +30,7 @@ const tile = 'flex items-center justify-center font-bold size-[min(3.5rem,15vw)]
  */
 export default function PlayBar() {
   const { transport, config, play, pause, stop, setBpm, conductor } = useConductor();
-  const { progression, currentChord, nextChord, playbackMode } = usePlaybackEngine();
+  const { progression, currentChord, nextChord, playbackMode, chordIndex } = usePlaybackEngine();
   const { lastDetectedName, lastDetectedNote, isTargetHit, isActive, target } = useJudge();
   const midiNote = useMidiInput().lastNote;
   const micNote = useMicInput().lastNote;
@@ -56,6 +56,9 @@ export default function PlayBar() {
     window.addEventListener('pointerdown', wake);
     return () => window.removeEventListener('pointerdown', wake);
   }, [conductor]);
+
+  // In a preset that moves through keys, say which key the current chord belongs to.
+  const key = useMemo(() => keyAt(progression, chordIndex), [progression, chordIndex]);
 
   const chordTones = useMemo(() => {
     if (!currentChord) return [];
@@ -110,10 +113,16 @@ export default function PlayBar() {
     <>
       {/* What to play now. Sized to be read at arm's length on a phone. */}
       <section aria-label="Now playing" className="zone-now flex flex-col gap-1 border-b border-border-muted bg-surface pb-2">
-        <div className="flex items-baseline gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-3">
           <span className="text-display font-bold text-ink lg:text-lg">{currentChord ? formatChordLabel(currentChord.label) : '--'}</span>
+          {key && (
+            // In random order the pass number means nothing, so only the key is shown.
+            <span className="text-sm text-ink-muted lg:text-xs" aria-label={`Key of ${key.name}${playbackMode === 'random' ? '' : `, ${key.pass} of ${key.passes}`}`}>
+              Key <span className="font-bold text-ink">{key.name}</span>{playbackMode !== 'random' && ` ${key.pass}/${key.passes}`}
+            </span>
+          )}
           <span className="text-sm text-ink-muted lg:text-xs">
-            Next: {playbackMode === 'random' ? 'random' : nextChord ? formatChordLabel(nextChord.label) : '—'}
+            Next: {nextChord ? formatChordLabel(nextChord.label) : playbackMode === 'random' ? (key ? 'random key' : 'random') : '—'}
           </span>
           <span role="status" className={`${microLabel} ml-auto flex items-center gap-2`}>
             {isCounting && <span className="size-2 rounded-full bg-yellow-400 animate-pulse" />}
