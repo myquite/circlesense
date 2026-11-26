@@ -13,6 +13,7 @@ import { deviceOf, failureOf } from '../src/input/connection';
 import { AudioHost } from '../src/audio/audioHost';
 import { loadSettings, startingProgression } from '../src/state/sessionStore';
 import { transportShortcut } from '../src/ui/useTransportShortcuts';
+import { homeScreenHeight } from '../src/ui/fitHomeScreenViewport';
 
 // A deterministic clock drives the real scheduling, playback, and judging code.
 // Only the browser's clock and audio nodes are replaced.
@@ -501,4 +502,12 @@ test('the transport only makes legal moves, and each state maps to one take phas
   ]);
   assert.equal(playback.getSnapshot().isActive, false);
   assert.equal(judge.getSnapshot().isActive, false);
+});
+
+test('home-screen height corrects a status-bar-sized shortfall and nothing else', () => {
+  assert.equal(homeScreenHeight(402, 874, 402, 812), 874); // portrait, 62pt short
+  assert.equal(homeScreenHeight(402, 874, 874, 340), 402); // landscape, 62pt short
+  assert.equal(homeScreenHeight(402, 874, 402, 874), null); // already full height
+  assert.equal(homeScreenHeight(1024, 1366, 507, 1366), null); // iPad split view, full height
+  assert.equal(homeScreenHeight(1024, 1366, 768, 1100), null); // much smaller window: real, not the bug
 });

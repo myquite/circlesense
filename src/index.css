@@ -42,6 +42,8 @@ button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-al
      with a translucent status bar, iOS reports 100dvh short of the screen and leaves a gap. */
   position: fixed;
   inset: 0;
+  /* Set only when iOS reports a home-screen viewport shorter than the screen (see fitHomeScreenViewport). */
+  height: var(--app-height, auto);
   overflow: hidden;
   grid-template: "now" auto "pane" minmax(0, 1fr) "transport" auto "tabs" auto / minmax(0, 1fr);
 }
